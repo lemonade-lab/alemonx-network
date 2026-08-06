@@ -30,3 +30,9 @@ func TestRedactURLHidesProxyPassword(t *testing.T) {
 		t.Fatalf("redactURL = %q", got)
 	}
 }
+
+func TestSetNPMRegistryRejectsArbitraryURLsBeforeRunningNPM(t *testing.T) {
+	if _, err := setNPMRegistry(map[string]string{"registry": "https://example.test/"}); err == nil {
+		t.Fatal("arbitrary registry must be rejected")
+	}
+}

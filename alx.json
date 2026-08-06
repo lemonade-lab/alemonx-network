@@ -20,6 +20,8 @@
   "actions": [
     { "id": "network-check", "label": "检查网络", "description": "检查网卡、默认路由、DNS 和 npm 官方 Registry 连通性。", "page": "diagnostics" },
     { "id": "mirror-check", "label": "检查镜像与代理", "description": "读取 npm Registry、代理设置并探测 Registry。", "page": "mirror" },
+    { "id": "set-npm-registry", "label": "切换 npm 镜像", "description": "将当前用户的 npm Registry 切换为官方源或 npmmirror。", "page": "mirror", "confirm": true, "fields": [{ "key": "registry", "label": "npm Registry", "type": "select", "default": "https://registry.npmjs.org/", "options": [{ "label": "npm 官方源（推荐）", "value": "https://registry.npmjs.org/" }, { "label": "npmmirror 镜像", "value": "https://registry.npmmirror.com/" }] }] },
+    { "id": "reset-npm-registry", "label": "恢复 npm 官方源", "description": "删除自定义 Registry 设置，恢复 npm 默认官方源。", "page": "mirror", "confirm": true },
     { "id": "port-check", "label": "检查端口", "description": "查看指定端口是否已被本机监听。", "page": "firewall", "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117" }] },
     { "id": "firewall-status", "label": "检查防火墙", "description": "读取当前系统的防火墙状态，不修改系统。", "page": "firewall" },
     { "id": "open-port", "label": "开放入站端口", "description": "允许指定 TCP 或 UDP 入站端口；通常需要管理员权限。", "page": "firewall", "confirm": true, "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP（推荐）", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }] },

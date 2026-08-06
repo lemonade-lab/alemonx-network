@@ -56,6 +56,10 @@ func run(action string, params map[string]string) (string, error) {
 		return networkCheck(), nil
 	case "mirror-check":
 		return mirrorCheck(), nil
+	case "set-npm-registry":
+		return setNPMRegistry(params)
+	case "reset-npm-registry":
+		return resetNPMRegistry()
 	case "port-check":
 		port, err := portParam(params)
 		if err != nil {
@@ -139,6 +143,30 @@ func mirrorCheck() string {
 	}
 	_ = response.Body.Close()
 	return strings.Join(lines, "\n") + "\n镜像连通性：" + response.Status
+}
+
+func setNPMRegistry(params map[string]string) (string, error) {
+	registry := strings.TrimSpace(params["registry"])
+	allowed := map[string]bool{
+		"https://registry.npmjs.org/":     true,
+		"https://registry.npmmirror.com/": true,
+	}
+	if !allowed[registry] {
+		return "", fmt.Errorf("仅允许切换到插件内置的 npm 官方源或 npmmirror")
+	}
+	output, err := exec.Command("npm", "config", "set", "registry", registry).CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(output)), fmt.Errorf("无法设置 npm Registry：%w", err)
+	}
+	return "npm Registry 已切换为：" + registry, nil
+}
+
+func resetNPMRegistry() (string, error) {
+	output, err := exec.Command("npm", "config", "delete", "registry").CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(output)), fmt.Errorf("无法恢复 npm 官方源：%w", err)
+	}
+	return "已删除自定义 Registry 设置；npm 将使用官方默认源。", nil
 }
 
 func portCheck(port int) string {
