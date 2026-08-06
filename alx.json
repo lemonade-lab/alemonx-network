@@ -1,0 +1,28 @@
+{
+  "id": "alemonx-network",
+  "name": "网络、镜像与防火墙",
+  "version": "0.1.0",
+  "description": "诊断本机网络、npm 镜像、监听端口与防火墙；所有系统修改均需明确确认。",
+  "platforms": ["darwin", "linux", "windows"],
+  "runtime": "binary",
+  "entry": {
+    "darwin-arm64": "dist/alemonx-network-darwin-arm64",
+    "darwin-amd64": "dist/alemonx-network-darwin-amd64",
+    "linux-amd64": "dist/alemonx-network-linux-amd64",
+    "windows-amd64": "dist/alemonx-network-windows-amd64.exe"
+  },
+  "navigation": { "label": "网络", "icon": "network", "order": -100 },
+  "pages": [
+    { "id": "diagnostics", "label": "网络诊断", "description": "检查网络接口、DNS、默认路由和 npm 官方 Registry 连通性。" },
+    { "id": "mirror", "label": "镜像与代理", "description": "查看 npm Registry 与代理配置，并验证当前镜像。" },
+    { "id": "firewall", "label": "端口与防火墙", "description": "检查监听端口和系统防火墙；修改规则前会再次确认。" }
+  ],
+  "actions": [
+    { "id": "network-check", "label": "检查网络", "description": "检查网卡、默认路由、DNS 和 npm 官方 Registry 连通性。", "page": "diagnostics" },
+    { "id": "mirror-check", "label": "检查镜像与代理", "description": "读取 npm Registry、代理设置并探测 Registry。", "page": "mirror" },
+    { "id": "port-check", "label": "检查端口", "description": "查看指定端口是否已被本机监听。", "page": "firewall", "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117" }] },
+    { "id": "firewall-status", "label": "检查防火墙", "description": "读取当前系统的防火墙状态，不修改系统。", "page": "firewall" },
+    { "id": "open-port", "label": "开放入站端口", "description": "允许指定 TCP 或 UDP 入站端口；通常需要管理员权限。", "page": "firewall", "confirm": true, "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP（推荐）", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }] },
+    { "id": "close-port", "label": "关闭入站端口", "description": "移除本插件创建的指定端口规则；通常需要管理员权限。", "page": "firewall", "confirm": true, "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP（推荐）", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }] }
+  ]
+}
