@@ -1,72 +1,66 @@
-# ALemonX 网络、端口转发与防火墙系统插件
+# 网络、端口转发与防火墙
 
 [![CI](https://github.com/lemonade-lab/alemonx-network/actions/workflows/ci.yml/badge.svg)](https://github.com/lemonade-lab/alemonx-network/actions/workflows/ci.yml)
 
-这是一个 Go 实现的 ALemonX 系统插件，提供接近 Cockpit「网络」模块的本机网络管理能力：
+这是 ALemonX 的一个插件，帮你**管理电脑的网络**。装好后，在 ALemonX 里打开它，就能在一个简洁的界面上做下面这些事，不用记任何命令：
 
-- **网络接口**：接口详情（状态 / MTU / MAC / IP / 速率）、接口启停、静态 IP 添加/移除、DNS、MTU、静态路由、接口流量快照；
-- **端口转发**：把本机端口收到的入站连接映射转发到**目标 IP 的端口**（端口映射 / DNAT），并列出/移除规则；
-- **虚拟网络（仅 Linux）**：链路聚合（Bond）、网桥（Bridge）、VLAN 的创建 / 删除 / 列出；
-- **防火墙**：端口占用探测、防火墙状态查询、开放/关闭入站端口、firewalld 区域与服务管理（仅 Linux）；
-- **镜像与代理**：npm Registry / 代理状态、镜像可达性、切换官方源或 npmmirror。
+- **检查网络**：网卡、DNS、外网是否正常，一键查看。
+- **管理网卡**：看网卡信息、启用/停用、手动设 IP、改 DNS。
+- **端口转发**：让别人能通过你的电脑访问到另一台设备（比如家里那台服务器）。
+- **防火墙**：查看/开放/关闭端口。
+- **换 npm 下载源**：国内网络慢时切到国内镜像。
 
-插件自带一个 **Web 界面**（`web/`）：在 ALemonX 插件详情页直接嵌入，可视化面板里即可运行诊断、管理端口转发与防火墙，无需记忆动作参数。插件热插拔：放入插件目录或更新清单后约 1 秒自动生效，无需重启。
+## 安装
 
-所有修改系统、网络或防火墙的动作都只调用固定的系统命令，输入在插件内二次校验，端口限制为 `1..65535`，协议仅允许 `tcp` 或 `udp`。
+1. 打开 [Releases 页面](https://github.com/lemonade-lab/alemonx-network/releases)，下载和你系统匹配的文件：
+   - **Windows** → 下载 `alemonx-network-windows-amd64.zip`
+   - **Mac（M 系列芯片）** → 下载 `alemonx-network-darwin-arm64.zip`
+   - **Mac（Intel 芯片）** → 下载 `alemonx-network-darwin-amd64.zip`
+   - **Linux** → 下载 `alemonx-network-linux-amd64.zip`
+2. 解压，得到一个叫 `alemonx-network` 的文件夹。
+3. 把整个文件夹放进 ALemonX 的插件目录。任选其一：
+   - 你电脑的「用户配置」目录下 `alx/plugins/`：
+     - Windows：`C:\Users\你的用户名\AppData\Roaming\alx\plugins\`
+     - Mac：`~/Library/Application Support/alx/plugins/`
+     - Linux：`~/.config/alx/plugins/`
+4. 打开 ALemonX，点左侧「插件」，就能看到「网络、端口转发与防火墙」。点它，进界面。
 
-## 端口映射到指定 IP
+> 只要文件夹被放对了位置，ALemonX 会在约 1 秒内自动认出它，不用重启程序。
 
-| 平台 | 后端 | 说明 |
-| --- | --- | --- |
-| Windows | `netsh interface portproxy` | 系统级、可持久；仅 TCP；监听地址留空时自动取本机非回环 IPv4 |
-| Linux | `firewalld`（回退 `iptables` DNAT） | firewalld 持久化（Cockpit 同款）；iptables 为非持久化并提示开启 IP 转发 |
-| macOS | 用户态 TCP 转发器 | 插件 detach 自身进程；无需 root；仅 TCP；规则持久化于用户配置目录 |
+## 开始使用
 
-跨平台统一动作：`forward-list` / `forward-add` / `forward-remove`。添加时不会隐式修改防火墙，如入站仍被拦截会在输出中提示先开放对应端口。
+点开插件后，界面顶部有三个页签：
 
-macOS 用户态转发器的规则存于 `~/.config/alx-network/`（Windows 为 `%APPDATA%`，macOS 为 `~/Library/Application Support/`），移除规则时会终止对应进程。
+| 页签 | 能做什么 |
+| --- | --- |
+| **诊断** | 点「检查网络」看网络是否正常；「查看防火墙」「检查下载源」也是点一下就行。 |
+| **端口转发** | 把本机一个端口收到的连接，转发到另一台设备的端口。点「刷新」看现有规则，点「添加」新建一条，填：本机端口、目标设备 IP、目标端口、协议。 |
+| **防火墙** | 开放或关闭某个入站端口（填端口号和协议即可）。 |
 
-## 安装到 ALemonX
+改动系统设置的操作用前都会再弹窗确认一次，不用担心误点。
 
-1. 从 [Releases](https://github.com/lemonade-lab/alemonx-network/releases) 下载与你系统匹配的 zip（如 `alemonx-network-darwin-arm64.zip`）。
-2. 解压得到 `alemonx-network/` 目录（内含 `alx.json` 与 `dist/`）。
-3. 把整个目录放进 ALemonX 的插件发现目录（任选其一）：
-   - 可执行文件同级的 `plugins/`；
-   - 启动 ALemonX 的工作目录下的 `plugins/`；
-   - 用户配置目录 `alx/plugins/`（macOS `~/Library/Application Support/alx/plugins/`、Linux `~/.config/alx/plugins/`、Windows `%APPDATA%\alx\plugins\`）。
-4. 在 ALemonX 打开「插件」页刷新，即可看到「网络、端口转发与防火墙」。
+## 平台限制
 
-也可以从[在线目录](https://github.com/lemonade-lab/alemonjs.dev/blob/main/docs/apps-x.md)识别该插件的功能入口；在线识别只读清单，执行操作仍需本地安装。
+- **端口转发**：Windows / Linux / Mac 都支持。
+- **开放/关闭端口**：Windows / Linux 支持；**Mac 不支持**（系统限制，会提示你）。
+- **网卡、IP、DNS、路由管理**：三个系统都支持，个别能力视系统而定。
 
-## 本地开发
+## 给开发者
 
-依赖 Go 1.23+ 与 Node 22（前端）。仓库在根目录启动 ALemonX 时，插件会通过 Go 开发执行器直接运行：
-
-```bash
-make check          # 单元测试 + go vet + 校验 alx.json
-printf '{"protocol":"alx/v1","method":"run","action":"network-check"}' | go run ./runner
-make web            # 构建前端（frontend/ → web/，对齐 alx 设计 token）
-make build          # 构建 4 个平台的二进制到 dist/
-make dist           # 构建并打包成与 Release 相同的 4 个 zip 到 release/
-```
-
-前端在 `frontend/`（React + Vite + Tailwind），`yarn dev` 可本地开发（Vite 代理指向本地 alx）。`web/` 是构建产物，不提交仓库，由 `make web` 或 CI 生成。
+- 插件逻辑在 `runner/`（Go），界面在 `frontend/`（React + Vite + Tailwind，视觉与 ALemonX 一致）。
+- 常用命令：`make check`（测试）、`make web`（构建界面）、`make build`（构建各平台二进制）、`make dist`（打包成发布 zip）。
+- 技术细节见 [开发文档](https://github.com/lemonade-lab/alemonjs.dev/blob/main/docs/plugin-development.md)。
 
 ## 发布
 
-打一个 `v*` 标签并推送，GitHub Actions 会自动运行 `verify` → `package` → `release`，创建 GitHub Release：
+维护者打标签推送，CI 会自动构建并发布：
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
-Release 产物是 4 个 `alemonx-network-<platform>.zip`，每个都包含完整插件目录，可直接按上面「安装到 ALemonX」使用。二进制不提交到仓库，由 CI 构建。
+## 安全
 
-## 安全与平台边界
-
-- 所有输入参数均在执行器内校验（`net.ParseIP` / `net.ParseCIDR` / 端口 / MTU / 协议），一律 `exec.Command` 参数数组，绝不拼接 shell 字符串。
-- 所有修改类动作在清单中声明 `confirm: true`，UI / CLI / MCP 三端统一二次确认。
-- macOS 应用防火墙不支持按端口修改，`open-port` / `close-port` 在 macOS 上会明确拒绝；端口映射则改用用户态转发器，不触碰 PF 或应用防火墙。
-- Linux 接口/DNS/路由命令依赖 `ip`（iproute2）、`resolvectl` 等工具；缺失时优雅降级提示，不猜测改写 `/etc/resolv.conf` 等系统文件。
-- 平台不支持的能力一律返回明确提示，不影响其他动作。
+- 所有修改系统的操作都只调用固定的系统命令，输入会先校验，绝不执行你输入的任意命令。
+- 只在你明确操作时才会改动系统，动手前都会二次确认。
