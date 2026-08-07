@@ -15,7 +15,6 @@ import sys
 MAX_MANIFEST = 64 * 1024
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 RUN_TIMES = {"", "binary", "node", "go"}
-FIELD_TYPES = {"select", "number", "text", "boolean", "bool", "password", "email", "url"}
 PLATFORM_KEYS = {"darwin-arm64", "darwin-amd64", "linux-amd64", "windows-amd64"}
 
 
@@ -65,51 +64,6 @@ def main(path):
         elif development.get("runtime", "") not in RUN_TIMES or not development.get("entry"):
             errors.append("development runtime must be binary/node/go and entry is required")
 
-    pages = manifest.get("pages", [])
-    if not isinstance(pages, list) or len(pages) == 0:
-        errors.append("pages must be a non-empty list")
-    else:
-        page_ids = [page.get("id") for page in pages if isinstance(page, dict)]
-        if len(page_ids) != len(set(page_ids)):
-            errors.append("page ids must be unique")
-        for page in pages:
-            if not isinstance(page, dict) or not ID_RE.match(page.get("id", "")):
-                errors.append(f"invalid page {page!r}")
-            if not isinstance(page.get("label"), str) or not page["label"].strip():
-                errors.append(f"page {page.get('id')!r} is missing a label")
-
-    actions = manifest.get("actions", [])
-    if not isinstance(actions, list):
-        errors.append("actions must be a list")
-    else:
-        action_ids = [action.get("id") for action in actions if isinstance(action, dict)]
-        if len(action_ids) != len(set(action_ids)):
-            errors.append("action ids must be unique")
-        for action in actions:
-            if not isinstance(action, dict):
-                errors.append("action entries must be objects")
-                continue
-            if not ID_RE.match(action.get("id", "")):
-                errors.append(f"invalid action id {action.get('id')!r}")
-            if not isinstance(action.get("label"), str) or not action["label"].strip():
-                errors.append(f"action {action.get('id')!r} is missing a label")
-            if action.get("page") and action["page"] not in page_ids:
-                errors.append(f"action {action.get('id')!r} references unknown page {action.get('page')!r}")
-            for flag in ("confirm", "advanced"):
-                if flag in action and not isinstance(action[flag], bool):
-                    errors.append(f"action {action.get('id')!r} field {flag} must be a boolean")
-            for field in action.get("fields", []):
-                if not isinstance(field, dict):
-                    errors.append(f"action {action.get('id')!r} has a non-object field")
-                    continue
-                if field.get("type", "text") not in FIELD_TYPES:
-                    errors.append(
-                        f"action {action.get('id')!r} field {field.get('key')!r} "
-                        f"has unsupported type {field.get('type')!r}"
-                    )
-                if field.get("type") == "select" and not field.get("options"):
-                    errors.append(f"action {action.get('id')!r} field {field.get('key')!r} is select but has no options")
-
     entry = manifest.get("entry")
     if entry is not None:
         if not isinstance(entry, dict) or not entry:
@@ -118,6 +72,18 @@ def main(path):
             for key in entry:
                 if key not in PLATFORM_KEYS and key not in {"linux", "darwin", "windows"} and key != "go":
                     errors.append(f"entry key {key!r} is not a platform or go")
+
+    web = manifest.get("web")
+    if web is None:
+        errors.append("web is required: the plugin's interface is its web UI")
+    elif not isinstance(web, dict) or not isinstance(web.get("root"), str):
+        errors.append("web must be an object with a string root")
+    else:
+        root = web["root"].strip()
+        if not root or root.startswith("/") or root.split("/")[0] == "..":
+            errors.append("web.root must be a directory path inside the plugin")
+        if ".." in root.split("/"):
+            errors.append("web.root must not contain ..")
 
     return report(errors)
 

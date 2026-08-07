@@ -1,8 +1,8 @@
 {
   "id": "alemonx-network",
   "name": "网络、端口转发与防火墙",
-  "version": "0.4.0",
-  "description": "检查网络是否正常、查看网卡信息、把端口转发到指定设备、开放防火墙端口。",
+  "version": "0.6.0",
+  "description": "检查网络是否正常、管理网卡与流量、把端口转发到指定设备、开放防火墙端口。",
   "platforms": ["darwin", "linux", "windows"],
   "runtime": "binary",
   "entry": {
@@ -15,52 +15,6 @@
     "runtime": "go",
     "entry": { "go": "runner/main.go" }
   },
-  "navigation": { "label": "网络", "icon": "network", "order": -100 },
-  "pages": [
-    { "id": "overview", "label": "总览", "description": "一键检查网络是否正常，并快速进入常用功能。" },
-    { "id": "interfaces", "label": "网络接口", "description": "查看网卡信息与流量，管理网卡、IP、DNS、路由和 MTU。" },
-    { "id": "forwarding", "label": "端口转发", "description": "把本机端口收到的连接，转发到另一台设备（端口映射）。" },
-    { "id": "virtual", "label": "虚拟网络", "description": "创建并管理 Linux 链路聚合（Bond）、网桥（Bridge）与 VLAN。仅 Linux 支持。" },
-    { "id": "firewall", "label": "端口与防火墙", "description": "查看端口占用和防火墙状态，开放/关闭端口，管理 firewalld 区域与服务。" },
-    { "id": "mirror", "label": "镜像与代理", "description": "查看和切换 npm 下载源，检查代理设置。" }
-  ],
-  "actions": [
-    { "id": "network-check", "label": "检查网络", "description": "检查各网卡、默认路由、DNS 与外网连通性是否正常。", "page": "overview" },
-    { "id": "port-check", "label": "检查端口占用", "description": "查看某个端口是否已被本机程序占用。", "page": "overview", "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117", "help": "想要检查的端口号，例如 17117。" }] },
-    { "id": "firewall-status", "label": "查看防火墙状态", "description": "读取当前系统的防火墙状态，不做任何修改。", "page": "overview" },
-    { "id": "mirror-check", "label": "检查下载源", "description": "查看当前 npm 下载源与代理设置，并测试其连通性。", "page": "overview" },
-    { "id": "forward-list", "label": "查看端口转发列表", "description": "查看当前所有端口转发规则及其状态。", "page": "overview" },
-
-    { "id": "iface-up", "label": "启用网卡", "description": "启用指定网卡，例如 en0、eth0 或 Windows 的“以太网”。", "page": "interfaces", "confirm": true, "fields": [{ "key": "interface", "label": "网卡名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }] },
-    { "id": "iface-down", "label": "停用网卡", "description": "停用指定网卡。注意：可能断开当前 alx 的网络连接。", "page": "interfaces", "confirm": true, "fields": [{ "key": "interface", "label": "网卡名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }] },
-    { "id": "dns-set", "label": "设置 DNS", "description": "为指定网卡或网络服务设置 DNS 服务器。", "page": "interfaces", "confirm": true, "fields": [{ "key": "interface", "label": "网卡/服务名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }, { "key": "dns", "label": "DNS 服务器", "type": "text", "default": "223.5.5.5 8.8.8.8", "help": "域名解析服务器，多个用空格分隔；默认是国内常用的阿里 DNS 与谷歌 DNS。" }] },
-
-    { "id": "forward-add", "label": "添加端口转发", "description": "把本机一个端口的入站连接，转发到另一台设备的端口。", "page": "forwarding", "confirm": true, "fields": [{ "key": "listenPort", "label": "本机端口", "type": "number", "default": "17117", "help": "别人访问你的电脑时使用的端口。" }, { "key": "listenAddress", "label": "监听地址（留空=全部）", "type": "text", "help": "一般留空即可，表示接受所有网卡的连接。" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }, { "key": "targetIP", "label": "目标设备 IP", "type": "text", "help": "接收转发的设备地址，如 192.168.1.100。" }, { "key": "targetPort", "label": "目标端口（留空=同本机端口）", "type": "text", "help": "目标设备上提供服务使用的端口。" }] },
-
-    { "id": "open-port", "label": "开放入站端口", "description": "允许外部设备访问本机的指定端口。", "page": "firewall", "confirm": true, "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117", "help": "要开放的端口号。" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP（推荐）", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }] },
-    { "id": "close-port", "label": "关闭入站端口", "description": "移除本插件之前开放的端口规则。", "page": "firewall", "confirm": true, "fields": [{ "key": "port", "label": "端口", "type": "number", "default": "17117", "help": "要关闭的端口号。" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP（推荐）", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }] },
-    { "id": "firewalld-zones", "label": "查看 firewalld 区域", "description": "查看 firewalld 的默认区域、区域列表与各区域放行的服务。仅 Linux。", "page": "firewall" },
-    { "id": "firewalld-service-add", "label": "放行服务", "description": "在指定区域放行一个 firewalld 服务（如 http、https），持久生效。", "page": "firewall", "confirm": true, "advanced": true, "fields": [{ "key": "zone", "label": "区域", "type": "text", "default": "public", "help": "放行生效的区域，常用 public。" }, { "key": "service", "label": "服务名", "type": "text", "default": "http", "help": "要放行的服务，如 http、https、ssh。" }] },
-    { "id": "firewalld-service-remove", "label": "停止放行服务", "description": "移除指定区域中的一个 firewalld 服务放行。", "page": "firewall", "confirm": true, "advanced": true, "fields": [{ "key": "zone", "label": "区域", "type": "text", "default": "public", "help": "要修改的区域。" }, { "key": "service", "label": "服务名", "type": "text", "default": "http", "help": "要停止放行的服务。" }] },
-    { "id": "firewalld-zone-set-default", "label": "设置默认区域", "description": "切换 firewalld 的默认区域，影响未指定区域的接口。", "page": "firewall", "confirm": true, "advanced": true, "fields": [{ "key": "zone", "label": "区域", "type": "text", "default": "public", "help": "设为默认的区域，如 public、home、trusted。" }] },
-
-    { "id": "set-npm-registry", "label": "切换 npm 下载源", "description": "在官方源与国内镜像之间切换 npm 下载源。", "page": "mirror", "confirm": true, "fields": [{ "key": "registry", "label": "npm 下载源", "type": "select", "default": "https://registry.npmjs.org/", "help": "官方源最稳定；国内网络较慢时可换 npmmirror。", "options": [{ "label": "npm 官方源（推荐）", "value": "https://registry.npmjs.org/" }, { "label": "npmmirror 国内镜像", "value": "https://registry.npmmirror.com/" }] }] },
-
-    { "id": "ip-add", "label": "添加静态 IP", "description": "为网卡手动指定一个固定 IP 地址。", "page": "interfaces", "confirm": true, "advanced": true, "fields": [{ "key": "interface", "label": "网卡名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }, { "key": "cidr", "label": "IP/CIDR", "type": "text", "default": "192.168.1.50/24", "help": "IP 加斜杠前缀长度，如 192.168.1.50/24 表示 192.168.1.0–255 这一整段。" }] },
-    { "id": "ip-remove", "label": "移除静态 IP", "description": "移除网卡上一个手动指定的 IP 地址。", "page": "interfaces", "confirm": true, "advanced": true, "fields": [{ "key": "interface", "label": "网卡名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }, { "key": "cidr", "label": "IP/CIDR", "type": "text", "default": "192.168.1.50/24", "help": "要移除的 IP 加斜杠前缀长度，如 192.168.1.50/24。" }] },
-    { "id": "mtu-set", "label": "设置 MTU", "description": "调整网卡的最大数据包大小。", "page": "interfaces", "confirm": true, "advanced": true, "fields": [{ "key": "interface", "label": "网卡名称", "type": "text", "help": "网卡名称，如 macOS/Linux 的 en0、eth0，或 Windows 的“以太网”。" }, { "key": "mtu", "label": "MTU", "type": "number", "default": "1500", "help": "数据包大小上限，通常保持 1500；改小可能改善某些卡顿，但请谨慎。" }] },
-    { "id": "route-add", "label": "添加静态路由", "description": "手动指定到达某个网段要走哪条路径。", "page": "interfaces", "confirm": true, "advanced": true, "fields": [{ "key": "destination", "label": "目标网段 (CIDR)", "type": "text", "default": "10.0.0.0/8", "help": "要到达的网段，如 10.0.0.0/8 表示所有 10.x 开头地址。" }, { "key": "gateway", "label": "网关", "type": "text", "default": "192.168.1.1", "help": "下一跳设备的 IP，通常是路由器的内网地址。" }, { "key": "interface", "label": "网卡（可选）", "type": "text", "help": "从哪个网卡发出，一般可留空。" }] },
-    { "id": "route-remove", "label": "移除静态路由", "description": "移除之前手动添加的静态路由。", "page": "interfaces", "confirm": true, "advanced": true, "fields": [{ "key": "destination", "label": "目标网段 (CIDR)", "type": "text", "default": "10.0.0.0/8", "help": "要移除的网段，如 10.0.0.0/8。" }, { "key": "gateway", "label": "网关", "type": "text", "default": "192.168.1.1", "help": "该路由使用的网关。" }] },
-    { "id": "traffic", "label": "查看接口流量", "description": "查看各网卡累计的收发数据量。", "page": "interfaces", "advanced": true },
-    { "id": "forward-remove", "label": "移除端口转发", "description": "按本机端口与目标设备，移除一条端口转发规则。", "page": "forwarding", "confirm": true, "advanced": true, "fields": [{ "key": "listenPort", "label": "本机端口", "type": "number", "default": "17117", "help": "该转发的本机端口。" }, { "key": "protocol", "label": "协议", "type": "select", "default": "tcp", "options": [{ "label": "TCP", "value": "tcp" }, { "label": "UDP", "value": "udp" }] }, { "key": "targetIP", "label": "目标设备 IP", "type": "text", "help": "该转发指向的目标设备地址。" }, { "key": "targetPort", "label": "目标端口（留空=同本机端口）", "type": "text" }] },
-
-    { "id": "virtual-list", "label": "查看虚拟网络", "description": "列出当前的 Bond、网桥与 VLAN 及其成员和 IP。仅 Linux。", "page": "virtual" },
-    { "id": "bond-create", "label": "创建 Bond", "description": "把多块物理网卡聚合为一个链路（Bond），提升带宽或冗余。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "name", "label": "Bond 名称", "type": "text", "default": "bond0", "help": "新建 Bond 的名称，如 bond0。" }, { "key": "mode", "label": "模式", "type": "select", "default": "802.3ad", "help": "802.3ad 需交换机支持 LACP；active-backup 主备冗余最简单。", "options": [{ "label": "802.3ad（LACP，推荐）", "value": "802.3ad" }, { "label": "active-backup（主备）", "value": "active-backup" }, { "label": "balance-rr（轮询）", "value": "balance-rr" }, { "label": "balance-xor", "value": "balance-xor" }, { "label": "broadcast（广播）", "value": "broadcast" }, { "label": "balance-tlb", "value": "balance-tlb" }, { "label": "balance-alb", "value": "balance-alb" }] }, { "key": "slaves", "label": "成员网卡", "type": "text", "help": "要聚合的物理网卡，逗号分隔，如 eth0,eth1。" }] },
-    { "id": "bond-delete", "label": "删除 Bond", "description": "删除一个 Bond，其成员网卡会恢复独立。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "name", "label": "Bond 名称", "type": "text", "default": "bond0", "help": "要删除的 Bond 名称。" }] },
-    { "id": "bridge-create", "label": "创建网桥", "description": "把多个网卡桥接为一个虚拟交换机（常用于虚拟机/容器）。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "name", "label": "网桥名称", "type": "text", "default": "br0", "help": "新建网桥的名称，如 br0。" }, { "key": "members", "label": "成员网卡", "type": "text", "help": "要桥接的网卡，逗号分隔，如 eth1,eth2。" }] },
-    { "id": "bridge-delete", "label": "删除网桥", "description": "删除一个网桥，其成员网卡会恢复独立。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "name", "label": "网桥名称", "type": "text", "default": "br0", "help": "要删除的网桥名称。" }] },
-    { "id": "vlan-create", "label": "创建 VLAN", "description": "在物理网卡上创建一个带标签的虚拟接口（VLAN）。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "parent", "label": "父接口", "type": "text", "default": "eth0", "help": "承载 VLAN 的物理网卡，如 eth0。" }, { "key": "id", "label": "VLAN ID", "type": "number", "default": "10", "help": "VLAN 标签号，1–4094，需与交换机一致。" }] },
-    { "id": "vlan-delete", "label": "删除 VLAN", "description": "删除一个 VLAN 虚拟接口。", "page": "virtual", "confirm": true, "advanced": true, "fields": [{ "key": "name", "label": "VLAN 接口名", "type": "text", "default": "eth0.10", "help": "要删除的 VLAN 接口名，如 eth0.10。" }] },
-    { "id": "reset-npm-registry", "label": "恢复 npm 官方源", "description": "删除自定义下载源设置，恢复 npm 官方默认源。", "page": "mirror", "confirm": true, "advanced": true }
-  ]
+  "web": { "root": "web" },
+  "navigation": { "label": "网络", "icon": "network", "order": -100 }
 }

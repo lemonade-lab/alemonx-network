@@ -10,6 +10,8 @@
 - **防火墙**：端口占用探测、防火墙状态查询、开放/关闭入站端口、firewalld 区域与服务管理（仅 Linux）；
 - **镜像与代理**：npm Registry / 代理状态、镜像可达性、切换官方源或 npmmirror。
 
+插件自带一个 **Web 界面**（`web/`）：在 ALemonX 插件详情页直接嵌入，可视化面板里即可运行诊断、管理端口转发与防火墙，无需记忆动作参数。插件热插拔：放入插件目录或更新清单后约 1 秒自动生效，无需重启。
+
 所有修改系统、网络或防火墙的动作都只调用固定的系统命令，输入在插件内二次校验，端口限制为 `1..65535`，协议仅允许 `tcp` 或 `udp`。
 
 ## 端口映射到指定 IP
@@ -38,14 +40,17 @@ macOS 用户态转发器的规则存于 `~/.config/alx-network/`（Windows 为 `
 
 ## 本地开发
 
-依赖 Go 1.23+。仓库在根目录启动 ALemonX 时，插件会通过 Go 开发执行器直接运行：
+依赖 Go 1.23+ 与 Node 22（前端）。仓库在根目录启动 ALemonX 时，插件会通过 Go 开发执行器直接运行：
 
 ```bash
 make check          # 单元测试 + go vet + 校验 alx.json
 printf '{"protocol":"alx/v1","method":"run","action":"network-check"}' | go run ./runner
+make web            # 构建前端（frontend/ → web/，对齐 alx 设计 token）
 make build          # 构建 4 个平台的二进制到 dist/
 make dist           # 构建并打包成与 Release 相同的 4 个 zip 到 release/
 ```
+
+前端在 `frontend/`（React + Vite + Tailwind），`yarn dev` 可本地开发（Vite 代理指向本地 alx）。`web/` 是构建产物，不提交仓库，由 `make web` 或 CI 生成。
 
 ## 发布
 
