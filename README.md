@@ -1,5 +1,7 @@
 # ALemonX 网络、端口转发与防火墙系统插件
 
+[![CI](https://github.com/lemonade-lab/alemonx-network/actions/workflows/ci.yml/badge.svg)](https://github.com/lemonade-lab/alemonx-network/actions/workflows/ci.yml)
+
 这是一个 Go 实现的 ALemonX 系统插件，提供接近 Cockpit「网络」模块的本机网络管理能力：
 
 - **网络接口**：接口详情（状态 / MTU / MAC / IP / 速率）、接口启停、静态 IP 添加/移除、DNS、MTU、静态路由、接口流量快照；
@@ -22,24 +24,39 @@
 
 macOS 用户态转发器的规则存于 `~/.config/alx-network/`（Windows 为 `%APPDATA%`，macOS 为 `~/Library/Application Support/`），移除规则时会终止对应进程。
 
-## 开发
+## 安装到 ALemonX
 
-ALemonX 识别的清单是 `alx.json`。在此仓库根目录启动 ALemonX 时，插件会通过 Go 开发执行器直接运行：
+1. 从 [Releases](https://github.com/lemonade-lab/alemonx-network/releases) 下载与你系统匹配的 zip（如 `alemonx-network-darwin-arm64.zip`）。
+2. 解压得到 `alemonx-network/` 目录（内含 `alx.json` 与 `dist/`）。
+3. 把整个目录放进 ALemonX 的插件发现目录（任选其一）：
+   - 可执行文件同级的 `plugins/`；
+   - 启动 ALemonX 的工作目录下的 `plugins/`；
+   - 用户配置目录 `alx/plugins/`（macOS `~/Library/Application Support/alx/plugins/`、Linux `~/.config/alx/plugins/`、Windows `%APPDATA%\alx\plugins\`）。
+4. 在 ALemonX 打开「插件」页刷新，即可看到「网络、端口转发与防火墙」。
+
+也可以从[在线目录](https://github.com/lemonade-lab/alemonjs.dev/blob/main/docs/apps-x.md)识别该插件的功能入口；在线识别只读清单，执行操作仍需本地安装。
+
+## 本地开发
+
+依赖 Go 1.23+。仓库在根目录启动 ALemonX 时，插件会通过 Go 开发执行器直接运行：
 
 ```bash
-go test ./runner/...
-go vet ./runner/...
+make check          # 单元测试 + go vet + 校验 alx.json
 printf '{"protocol":"alx/v1","method":"run","action":"network-check"}' | go run ./runner
+make build          # 构建 4 个平台的二进制到 dist/
+make dist           # 构建并打包成与 Release 相同的 4 个 zip 到 release/
 ```
 
-发布时构建对应平台二进制并放入 `dist/`：
+## 发布
+
+打一个 `v*` 标签并推送，GitHub Actions 会自动运行 `verify` → `package` → `release`，创建 GitHub Release：
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o dist/alemonx-network-linux-amd64 ./runner
-GOOS=windows GOARCH=amd64 go build -o dist/alemonx-network-windows-amd64.exe ./runner
-GOOS=darwin GOARCH=arm64 go build -o dist/alemonx-network-darwin-arm64 ./runner
-GOOS=darwin GOARCH=amd64 go build -o dist/alemonx-network-darwin-amd64 ./runner
+git tag v0.4.0
+git push origin v0.4.0
 ```
+
+Release 产物是 4 个 `alemonx-network-<platform>.zip`，每个都包含完整插件目录，可直接按上面「安装到 ALemonX」使用。二进制不提交到仓库，由 CI 构建。
 
 ## 安全与平台边界
 
