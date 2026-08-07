@@ -42,7 +42,8 @@ function StatusLineRow({ line }: { line: StatusLine }) {
 
 function ResultPanel({
   state,
-  title
+  title,
+  result
 }: {
   state: 'idle' | 'running' | 'done' | 'failed'
   title: string
@@ -175,7 +176,7 @@ export default function App() {
     action: () => Promise<void>
   } | null>(null)
 
-  const run = async (action: string, params: Record<string, string>, confirm = false) => {
+  const run = async (action: string, params: Record<string, string> = {}, confirm = false) => {
     setState('running')
     setResult(undefined)
     try {
