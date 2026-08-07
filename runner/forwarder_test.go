@@ -53,22 +53,10 @@ func TestRunTCPForwardRelaysTraffic(t *testing.T) {
 	}()
 
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	done := make(chan error, 1)
-	go func() { done <- runTCPForward(listenAddr, echoAddr) }()
+	go func() { _ = runTCPForward(listenAddr, echoAddr) }()
 
 	// The listener starts asynchronously; retry the dial briefly.
-	var upstream net.Conn
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		upstream, err = net.Dial("tcp", listenAddr)
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("forward listener never came up: %v", err)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	upstream := dialWithRetry(t, listenAddr)
 	defer upstream.Close()
 
 	payload := "alex ping via forwarder"
@@ -87,34 +75,35 @@ func TestRunTCPForwardRelaysTraffic(t *testing.T) {
 
 func TestRunTCPForwardRejectsUnroutableTargetGracefully(t *testing.T) {
 	// A dead target must not crash the forwarder listener; the client just
-	// gets dropped. This verifies relayTCP's error path stays contained.
+	// gets dropped. The listener keeps running: a second connection after a
+	// failed relay must still succeed.
 	listenAddr := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	done := make(chan error, 1)
-	go func() { done <- runTCPForward(listenAddr, "127.0.0.1:1") }()
+	go func() { _ = runTCPForward(listenAddr, "127.0.0.1:1") }()
 
+	// First connection triggers a relay to the unreachable target, which fails
+	// inside relayTCP without panicking. Closing it drops that relay.
+	first := dialWithRetry(t, listenAddr)
+	_, _ = first.Write([]byte("x"))
+	_ = first.Close()
+
+	// Give relayTCP a moment to finish tearing down, then prove the listener
+	// is still accepting new connections.
+	time.Sleep(200 * time.Millisecond)
+	second := dialWithRetry(t, listenAddr)
+	_ = second.Close()
+}
+
+func dialWithRetry(t *testing.T, listenAddr string) net.Conn {
+	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	var upstream net.Conn
 	for {
 		connection, dialErr := net.Dial("tcp", listenAddr)
 		if dialErr == nil {
-			upstream = connection
-			break
+			return connection
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("forward listener never came up: %v", dialErr)
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-	// Dialing succeeded and relayTCP must return without panicking.
-	_, _ = upstream.Write([]byte("x"))
-	_ = upstream.Close()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("forwarder listener exited unexpectedly: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("forwarder listener should keep accepting after a failed relay")
 	}
 }
