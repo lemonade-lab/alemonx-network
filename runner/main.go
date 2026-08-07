@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -29,13 +28,17 @@ type response struct {
 }
 
 func main() {
+	// Detached forwarder entry point used by the macOS port-mapping feature.
+	if len(os.Args) >= 2 && os.Args[1] == "serve-forward" {
+		os.Exit(serveForwardCommand(os.Args[2:]))
+	}
 	var input request
 	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
 		write(response{Error: "请求格式无效：" + err.Error()})
 		return
 	}
 	if input.Protocol != protocol || input.Method != "run" {
-		write(response{Error: fmt.Sprintf("不支持的 ALX Setup 插件协议（protocol=%q method=%q）", input.Protocol, input.Method)})
+		write(response{Error: fmt.Sprintf("不支持的 ALX 插件协议（protocol=%q method=%q）", input.Protocol, input.Method)})
 		return
 	}
 	output, err := run(input.Action, input.Params)
@@ -78,71 +81,80 @@ func run(action string, params map[string]string) (string, error) {
 			return "", err
 		}
 		return changeFirewall(action, port, transport)
+	case "iface-up", "iface-down":
+		return ifaceAction(action, params)
+	case "ip-add", "ip-remove":
+		return ipAddress(action, params)
+	case "dns-set":
+		return dnsSet(params)
+	case "mtu-set":
+		return mtuSet(params)
+	case "route-add", "route-remove":
+		return routeAction(action, params)
+	case "traffic":
+		return trafficSnapshot(), nil
+	case "forward-list":
+		return forwardList()
+	case "forward-add":
+		return forwardAdd(params)
+	case "forward-remove":
+		return forwardRemove(params)
+	case "virtual-list":
+		return virtualList()
+	case "bond-create":
+		return bondCreate(params)
+	case "bond-delete":
+		return virtualDelete("Bond", params)
+	case "bridge-create":
+		return bridgeCreate(params)
+	case "bridge-delete":
+		return virtualDelete("网桥", params)
+	case "vlan-create":
+		return vlanCreate(params)
+	case "vlan-delete":
+		return virtualDelete("VLAN", params)
+	case "firewalld-zones":
+		return firewalldZones()
+	case "firewalld-service-add":
+		return firewalldServiceAction("firewalld-service-add", params)
+	case "firewalld-service-remove":
+		return firewalldServiceAction("firewalld-service-remove", params)
+	case "firewalld-zone-set-default":
+		return firewalldSetDefaultZone(params)
 	default:
 		return "", fmt.Errorf("未知操作：%s", action)
 	}
 }
 
-func networkCheck() string {
-	lines := []string{"系统：" + runtime.GOOS + "/" + runtime.GOARCH}
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		lines = append(lines, "网卡：读取失败（"+err.Error()+"）")
-	} else {
-		active := []string{}
-		for _, item := range interfaces {
-			if item.Flags&net.FlagUp == 0 || item.Flags&net.FlagLoopback != 0 {
-				continue
-			}
-			addresses, _ := item.Addrs()
-			for _, address := range addresses {
-				if ip, _, splitErr := net.ParseCIDR(address.String()); splitErr == nil && !ip.IsLoopback() {
-					active = append(active, item.Name+"="+ip.String())
-				}
-			}
-		}
-		if len(active) == 0 {
-			lines = append(lines, "网卡：未找到已启用的非回环地址")
-		} else {
-			lines = append(lines, "网卡："+strings.Join(active, "，"))
-		}
-	}
-	lines = append(lines, "默认路由："+defaultRoute())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	addresses, err := net.DefaultResolver.LookupHost(ctx, "registry.npmjs.org")
-	if err != nil {
-		lines = append(lines, "DNS：registry.npmjs.org 解析失败（"+err.Error()+"）")
-	} else {
-		lines = append(lines, "DNS：registry.npmjs.org → "+strings.Join(addresses, ", "))
-	}
-	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", "registry.npmjs.org:443")
-	if err != nil {
-		lines = append(lines, "HTTPS 连通性：失败（"+err.Error()+"）")
-	} else {
-		_ = connection.Close()
-		lines = append(lines, "HTTPS 连通性：registry.npmjs.org:443 可连接")
-	}
-	return strings.Join(lines, "\n")
-}
-
 func mirrorCheck() string {
 	registry := strings.TrimSpace(commandOutput("npm", "config", "get", "registry"))
+	unconfigured := false
 	if registry == "" || strings.Contains(registry, "未找到命令") {
-		registry = "https://registry.npmjs.org/（npm 未安装或未配置）"
+		registry = "https://registry.npmjs.org/"
+		unconfigured = true
 	}
-	lines := []string{"npm Registry：" + redactURL(registry), "HTTP_PROXY：" + displayEnv("HTTP_PROXY"), "HTTPS_PROXY：" + displayEnv("HTTPS_PROXY"), "NO_PROXY：" + displayEnv("NO_PROXY")}
+	registryLine := "✓ npm 下载源：" + redactURL(registry)
+	if unconfigured {
+		registryLine = "? npm 下载源：未配置，使用官方默认 " + redactURL(registry)
+	}
+	lines := []string{registryLine, "✓ HTTP_PROXY：" + displayEnv("HTTP_PROXY"), "✓ HTTPS_PROXY：" + displayEnv("HTTPS_PROXY"), "✓ NO_PROXY：" + displayEnv("NO_PROXY")}
 	parsed, err := url.Parse(registry)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return strings.Join(lines, "\n") + "\nRegistry 格式无效，未发起连接测试。"
+		return strings.Join(lines, "\n") + "\n? Registry 格式无效，未发起连接测试。"
 	}
 	client := &http.Client{Timeout: 6 * time.Second}
 	response, err := client.Get(strings.TrimRight(parsed.String(), "/") + "/-/ping")
 	if err != nil {
-		return strings.Join(lines, "\n") + "\n镜像连通性：失败（" + err.Error() + "）"
+		return strings.Join(lines, "\n") + "\n! 镜像连通性：失败（" + err.Error() + "）"
 	}
 	_ = response.Body.Close()
-	return strings.Join(lines, "\n") + "\n镜像连通性：" + response.Status
+	status := response.Status
+	if response.StatusCode >= 200 && response.StatusCode < 400 {
+		status = "可访问（" + response.Status + "）"
+	} else {
+		status = "异常（" + response.Status + "）"
+	}
+	return strings.Join(lines, "\n") + "\n✓ 镜像连通性：" + status
 }
 
 func setNPMRegistry(params map[string]string) (string, error) {
@@ -173,24 +185,27 @@ func portCheck(port int) string {
 	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err == nil {
 		_ = listener.Close()
-		return fmt.Sprintf("端口 %d 当前未被 TCP 服务监听。", port)
+		return fmt.Sprintf("✓ 端口 %d 当前未被 TCP 服务监听。", port)
 	}
-	return fmt.Sprintf("端口 %d 可能正在被 TCP 服务监听或被系统保留：%v", port, err)
+	return fmt.Sprintf("! 端口 %d 可能正在被 TCP 服务监听或被系统保留：%v", port, err)
 }
 
 func firewallStatus() string {
 	switch runtime.GOOS {
 	case "windows":
-		return commandOutput("netsh", "advfirewall", "show", "allprofiles")
+		return "✓ Windows 防火墙状态：\n" + commandOutput("netsh", "advfirewall", "show", "allprofiles")
 	case "darwin":
-		return commandOutput("pfctl", "-s", "info")
+		return "✓ macOS PF 防火墙状态：\n" + commandOutput("pfctl", "-s", "info")
 	case "linux":
 		if output := commandOutput("ufw", "status", "verbose"); !strings.Contains(output, "未找到命令") {
-			return output
+			return "✓ UFW 防火墙状态：\n" + output
 		}
-		return commandOutput("firewall-cmd", "--state")
+		if output := commandOutput("firewall-cmd", "--state"); !strings.Contains(output, "未找到命令") {
+			return "✓ firewalld 状态：\n" + output
+		}
+		return "? 未检测到 UFW 或 firewalld。"
 	default:
-		return "当前系统暂不支持读取防火墙状态。"
+		return "? 当前系统暂不支持读取防火墙状态。"
 	}
 }
 
@@ -227,24 +242,6 @@ func changeFirewall(action string, port int, transport string) (string, error) {
 	return fmt.Sprintf("%s %d/%s 入站端口规则。\n%s", verb, port, transport, strings.TrimSpace(string(output))), nil
 }
 
-func portParam(params map[string]string) (int, error) {
-	value := strings.TrimSpace(params["port"])
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, fmt.Errorf("端口必须是 1 到 65535 的整数")
-	}
-	return port, nil
-}
-func protocolParam(params map[string]string) (string, error) {
-	value := strings.ToLower(strings.TrimSpace(params["protocol"]))
-	if value == "" {
-		value = "tcp"
-	}
-	if value != "tcp" && value != "udp" {
-		return "", fmt.Errorf("协议仅支持 tcp 或 udp")
-	}
-	return value, nil
-}
 func defaultRoute() string {
 	switch runtime.GOOS {
 	case "windows":
