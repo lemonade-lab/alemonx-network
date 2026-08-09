@@ -8,9 +8,10 @@ type Task = {
   status: 'running' | 'completed' | 'failed'
   output?: string
   error?: string
+  data?: unknown
 }
 
-export type ActionResult = { output: string; error?: string }
+export type ActionResult<T = unknown> = { output: string; error?: string; data?: T }
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -45,7 +46,7 @@ export async function runAction(
   return payload.id
 }
 
-async function pollTask(id: string): Promise<ActionResult> {
+async function pollTask<T>(id: string): Promise<ActionResult<T>> {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 800))
     const data = await json<Task[]>(
@@ -53,19 +54,19 @@ async function pollTask(id: string): Promise<ActionResult> {
     ).catch(() => [])
     const task = data.find((item) => item.id === id)
     if (!task) continue
-    if (task.status === 'completed') return { output: task.output || '' }
+    if (task.status === 'completed') return { output: task.output || '', data: task.data as T }
     if (task.status === 'failed')
-      return { output: task.output || '', error: task.error || '插件操作失败。' }
+      return { output: task.output || '', error: task.error || '插件操作失败。', data: task.data as T }
   }
   return { output: '', error: '操作超时。' }
 }
 
 // runActionAndPoll is the single entry used by the views.
-export async function runActionAndPoll(
+export async function runActionAndPoll<T = unknown>(
   action: string,
   params: Record<string, string>,
   confirm = false
-): Promise<ActionResult> {
+): Promise<ActionResult<T>> {
   const id = await runAction(action, params, confirm)
   return pollTask(id)
 }

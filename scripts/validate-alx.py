@@ -85,6 +85,17 @@ def main(path):
         if ".." in root.split("/"):
             errors.append("web.root must not contain ..")
 
+    permissions = manifest.get("permissions")
+    if permissions is not None:
+        if not isinstance(permissions, dict):
+            errors.append("permissions must be an object")
+        else:
+            elevated = permissions.get("elevatedActions", [])
+            if not isinstance(elevated, list) or any(not isinstance(action, str) or not action.strip() for action in elevated):
+                errors.append("permissions.elevatedActions must be a list of non-empty action names")
+            elif len(set(elevated)) != len(elevated):
+                errors.append("permissions.elevatedActions must not contain duplicates")
+
     return report(errors)
 
 

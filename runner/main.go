@@ -21,10 +21,13 @@ type request struct {
 	Method   string            `json:"method"`
 	Action   string            `json:"action"`
 	Params   map[string]string `json:"params"`
+	Confirm  bool              `json:"confirm,omitempty"`
+	StateDir string            `json:"stateDir,omitempty"`
 }
 type response struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
+	Data   any    `json:"data,omitempty"`
 }
 
 func main() {
@@ -41,8 +44,11 @@ func main() {
 		write(response{Error: fmt.Sprintf("不支持的 ALX 插件协议（protocol=%q method=%q）", input.Protocol, input.Method)})
 		return
 	}
-	output, err := run(input.Action, input.Params)
-	write(response{Output: output, Error: errorText(err)})
+	if input.StateDir != "" {
+		governanceStateDir = input.StateDir
+	}
+	result, err := runAction(input.Action, input.Params)
+	write(response{Output: result.Output, Data: result.Data, Error: errorText(err)})
 }
 
 func write(result response) { _ = json.NewEncoder(os.Stdout).Encode(result) }
@@ -54,76 +60,118 @@ func errorText(err error) string {
 }
 
 func run(action string, params map[string]string) (string, error) {
+	result, err := runAction(action, params)
+	return result.Output, err
+}
+
+type actionResult struct {
+	Output string
+	Data   any
+}
+
+func runAction(action string, params map[string]string) (actionResult, error) {
+	var output string
+	var err error
 	switch action {
+	case "capabilities":
+		data := capabilitySnapshot()
+		return actionResult{Output: "已识别当前系统网络治理能力。", Data: data}, nil
+	case "snapshot":
+		data := networkSnapshot()
+		return actionResult{Output: "已刷新网络快照。", Data: data}, nil
+	case "diagnose":
+		data := networkDiagnosis(params)
+		return actionResult{Output: diagnosisSummary(data), Data: data}, nil
+	case "plan":
+		plan, planErr := createPlan(params)
+		if planErr != nil {
+			return actionResult{}, planErr
+		}
+		return actionResult{Output: "变更计划已生成，请确认差异后应用。", Data: plan}, nil
+	case "apply-plan":
+		result, applyErr := applyPlan(params)
+		return result, applyErr
+	case "audit-list":
+		entries, auditErr := loadAudit()
+		return actionResult{Output: "已读取本机变更历史。", Data: entries}, auditErr
+	case "undo-last":
+		return undoLastChange()
 	case "network-check":
-		return networkCheck(), nil
+		output = networkCheck()
 	case "mirror-check":
-		return mirrorCheck(), nil
+		output = mirrorCheck()
 	case "set-npm-registry":
-		return setNPMRegistry(params)
+		output, err = setNPMRegistry(params)
 	case "reset-npm-registry":
-		return resetNPMRegistry()
+		output, err = resetNPMRegistry()
 	case "port-check":
 		port, err := portParam(params)
 		if err != nil {
-			return "", err
+			return actionResult{}, err
 		}
-		return portCheck(port), nil
+		output = portCheck(port)
 	case "firewall-status":
-		return firewallStatus(), nil
+		output = firewallStatus()
 	case "open-port", "close-port":
 		port, err := portParam(params)
 		if err != nil {
-			return "", err
+			return actionResult{}, err
 		}
 		transport, err := protocolParam(params)
 		if err != nil {
-			return "", err
+			return actionResult{}, err
 		}
-		return changeFirewall(action, port, transport)
+		output, err = changeFirewall(action, port, transport)
 	case "iface-up", "iface-down":
-		return ifaceAction(action, params)
+		output, err = ifaceAction(action, params)
 	case "ip-add", "ip-remove":
-		return ipAddress(action, params)
+		output, err = ipAddress(action, params)
 	case "dns-set":
-		return dnsSet(params)
+		output, err = dnsSet(params)
 	case "mtu-set":
-		return mtuSet(params)
+		output, err = mtuSet(params)
 	case "route-add", "route-remove":
-		return routeAction(action, params)
+		output, err = routeAction(action, params)
 	case "traffic":
-		return trafficSnapshot(), nil
+		output = trafficSnapshot()
 	case "forward-list":
-		return forwardList()
+		output, err = forwardList()
 	case "forward-add":
-		return forwardAdd(params)
+		output, err = forwardAdd(params)
 	case "forward-remove":
-		return forwardRemove(params)
+		output, err = forwardRemove(params)
 	case "virtual-list":
-		return virtualList()
+		output, err = virtualList()
 	case "bond-create":
-		return bondCreate(params)
+		output, err = bondCreate(params)
 	case "bond-delete":
-		return virtualDelete("Bond", params)
+		output, err = virtualDelete("Bond", params)
 	case "bridge-create":
-		return bridgeCreate(params)
+		output, err = bridgeCreate(params)
 	case "bridge-delete":
-		return virtualDelete("网桥", params)
+		output, err = virtualDelete("网桥", params)
 	case "vlan-create":
-		return vlanCreate(params)
+		output, err = vlanCreate(params)
 	case "vlan-delete":
-		return virtualDelete("VLAN", params)
+		output, err = virtualDelete("VLAN", params)
 	case "firewalld-zones":
-		return firewalldZones()
+		output, err = firewalldZones()
 	case "firewalld-service-add":
-		return firewalldServiceAction("firewalld-service-add", params)
+		output, err = firewalldServiceAction("firewalld-service-add", params)
 	case "firewalld-service-remove":
-		return firewalldServiceAction("firewalld-service-remove", params)
+		output, err = firewalldServiceAction("firewalld-service-remove", params)
 	case "firewalld-zone-set-default":
-		return firewalldSetDefaultZone(params)
+		output, err = firewalldSetDefaultZone(params)
 	default:
-		return "", fmt.Errorf("未知操作：%s", action)
+		return actionResult{}, fmt.Errorf("未知操作：%s", action)
 	}
+	if err != nil {
+		return actionResult{Output: output}, err
+	}
+	if isMutatingAction(action) {
+		_ = appendAudit(action, params, output)
+	}
+	return actionResult{Output: output}, nil
 }
 
 func mirrorCheck() string {
