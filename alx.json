@@ -1,9 +1,13 @@
 {
   "id": "alemonx-network",
   "name": "网络、端口转发与防火墙",
-  "version": "0.6.0",
+  "version": "0.0.1",
   "description": "检查网络是否正常、管理网卡与流量、把端口转发到指定设备、开放防火墙端口。",
-  "platforms": ["darwin", "linux", "windows"],
+  "platforms": [
+    "darwin",
+    "linux",
+    "windows"
+  ],
   "runtime": "binary",
   "entry": {
     "darwin-arm64": "dist/alemonx-network-darwin-arm64",
@@ -13,8 +17,16 @@
   },
   "development": {
     "runtime": "go",
-    "entry": { "go": "runner/main.go" }
+    "entry": {
+      "go": "runner/main.go"
+    }
   },
-  "web": { "root": "web" },
-  "navigation": { "label": "网络", "icon": "network", "order": -100 }
+  "web": {
+    "root": "web"
+  },
+  "navigation": {
+    "label": "网络",
+    "icon": "network",
+    "order": -100
+  }
 }
