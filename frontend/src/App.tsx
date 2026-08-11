@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { runActionAndPoll, type ActionResult } from './api'
+import { fetchPrivilegeAudit, fetchPrivilegeStatus, preflightPrivilege, runActionAndPoll, type ActionResult, type PrivilegePreflight, type PrivilegeStatus } from './api'
 
 type View = 'overview' | 'connections' | 'services' | 'security' | 'diagnostics'
 type Capability = { id: string; label: string; available: boolean; elevated: boolean; reason?: string }
@@ -9,6 +9,7 @@ type Snapshot = { platform: string; capturedAt: string; interfaces: InterfaceSna
 type Plan = { id: string; operation: string; params: Record<string, string>; risk: string; impact: string; verification: string[]; expiresAt: string }
 type Audit = { id: string; operation: string; params: Record<string, string>; output: string; undoOperation?: string; createdAt: string }
 type Diagnosis = { target: string; steps: { id: string; label: string; status: string; detail: string; latencyMs?: number }[] }
+type PrivilegeRequest = { action: 'apply-plan' | 'undo-last'; planID?: string; preflight: PrivilegePreflight; error?: string }
 
 const labels: Record<string, string> = {
   'iface-up': '启用接口', 'iface-down': '停用接口', 'ip-add': '添加 IP 地址', 'ip-remove': '移除 IP 地址',
@@ -38,14 +39,16 @@ export default function App() {
   const [message, setMessage] = useState<ActionResult>()
   const [busy, setBusy] = useState(false)
   const [plan, setPlan] = useState<Plan>()
+  const [privilege, setPrivilege] = useState<PrivilegeStatus>()
+	const [privilegeRequest, setPrivilegeRequest] = useState<PrivilegeRequest>()
 
   const refresh = async () => {
     setBusy(true)
     try {
-      const [capabilityResult, snapshotResult, auditResult] = await Promise.all([
-        runActionAndPoll<CapabilitySnapshot>('capabilities', {}), runActionAndPoll<Snapshot>('snapshot', {}), runActionAndPoll<Audit[]>('audit-list', {})
+      const [capabilityResult, snapshotResult, auditResult, privilegeResult] = await Promise.all([
+        runActionAndPoll<CapabilitySnapshot>('capabilities', {}), runActionAndPoll<Snapshot>('snapshot', {}), fetchPrivilegeAudit(), fetchPrivilegeStatus()
       ])
-      setCapabilities(capabilityResult.data); setSnapshot(snapshotResult.data); setAudit(auditResult.data ?? [])
+      setCapabilities(capabilityResult.data); setSnapshot(snapshotResult.data); setAudit((auditResult.items ?? []) as Audit[]); setPrivilege(privilegeResult)
       setMessage(snapshotResult)
     } finally { setBusy(false) }
   }
@@ -60,14 +63,28 @@ export default function App() {
       if (result.error) setMessage(result); else setPlan(result.data)
     } finally { setBusy(false) }
   }
-  const applyPlan = async () => {
-    if (!plan) return
+  const requestPrivilege = async (action: 'apply-plan' | 'undo-last', planID?: string) => {
     setBusy(true)
     try {
-      const result = await runActionAndPoll('apply-plan', { planID: plan.id }, true)
-      setMessage(result); setPlan(undefined); if (!result.error) await refresh()
-    } finally { setBusy(false) }
+      const preflight = await preflightPrivilege(action, planID)
+			setPrivilegeRequest({ action, planID, preflight })
+			setPlan(undefined)
+    } catch (reason) { setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
   }
+  const executePrivilege = async (password?: string) => {
+		if (!privilegeRequest?.preflight.available || !privilegeRequest.preflight.intentId) return
+		setBusy(true)
+		try {
+			const params: Record<string, string> = privilegeRequest.planID ? { planID: privilegeRequest.planID } : {}
+			const result = await runActionAndPoll(privilegeRequest.action, params, true, privilegeRequest.preflight.intentId, password)
+			setMessage(result)
+			if (result.error && (result.error.includes('权限请求已') || result.error.includes('请先在工作台确认'))) {
+				const preflight = await preflightPrivilege(privilegeRequest.action, privilegeRequest.planID)
+				setPrivilegeRequest({ ...privilegeRequest, preflight, error: '权限请求已刷新，请重新确认后继续。' })
+			} else if (result.error) setPrivilegeRequest({ ...privilegeRequest, error: result.error })
+			else { setPrivilegeRequest(undefined); await refresh() }
+		} catch (reason) { setPrivilegeRequest({ ...privilegeRequest, error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
+	}
   const runDiagnostic = async (target: string) => { setBusy(true); try { const result = await runActionAndPoll<Diagnosis>('diagnose', { target }); setMessage(result); setDiagnosis(result.data) } finally { setBusy(false) } }
   const runRead = async (action: string) => { setBusy(true); try { const result = await runActionAndPoll(action, {}); setMessage(result) } finally { setBusy(false) } }
 
@@ -76,13 +93,16 @@ export default function App() {
     <aside className="rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-3 lg:min-h-[680px]"><div className="mb-5 px-2"><h1 className="m-0 text-base font-semibold text-[var(--theme-text-strong)]">网络治理台</h1><p className="m-0 mt-1 text-xs text-[var(--theme-text-muted)]">本机 · {capabilities?.platform ?? '正在识别系统'}</p></div><nav className="grid gap-1">{navigation.map(([id, label, icon]) => <button key={id} onClick={() => setView(id)} className={'flex min-h-9 items-center gap-2 rounded-control px-2.5 text-left text-xs font-semibold ' + (view === id ? 'bg-[var(--theme-surface-active)] text-[var(--theme-text-strong)]' : 'text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)]')}><span>{icon}</span>{label}</button>)}</nav><button className="secondary-button mt-5 w-full" disabled={busy} onClick={() => void refresh()}>刷新快照</button></aside>
     <div className="grid content-start gap-4">
       {message && <div className={(message.error ? 'border-[var(--theme-danger)] bg-[var(--theme-danger-soft)] text-[var(--theme-danger-text)]' : 'border-[var(--theme-info)] bg-[var(--theme-info-soft)] text-[var(--theme-info-text)]') + ' rounded-panel border px-3 py-2 text-xs'}>{message.error || message.output}</div>}
+      {!privilege?.network.enabled && <div className="rounded-panel border border-[var(--theme-warning)] bg-[var(--theme-warning-soft)] px-3 py-2 text-xs text-[var(--theme-warning-text)]">仅可预演：{privilege?.network.reason || privilege?.privilege.reason || '正在读取本机权限策略。'}</div>}
+      {privilege && !privilege.audit.valid && <div className="rounded-panel border border-[var(--theme-danger)] bg-[var(--theme-danger-soft)] px-3 py-2 text-xs text-[var(--theme-danger-text)]">权限审计链校验失败：{privilege.audit.reason || '请停止系统变更并检查本机存储。'}</div>}
       {view === 'overview' && <Overview snapshot={snapshot} capabilities={capabilities} audit={audit} onRefresh={refresh} busy={busy}/>}
       {view === 'connections' && <Connections snapshot={snapshot} virtual={available('virtual')} busy={busy} onPlan={submitPlan}/>}
       {view === 'services' && <Services snapshot={snapshot} busy={busy} onPlan={submitPlan} onRead={runRead}/>}
       {view === 'security' && <Security firewall={available('firewall')} busy={busy} onPlan={submitPlan} onRead={runRead}/>}
-      {view === 'diagnostics' && <Diagnostics diagnosis={diagnosis} audit={audit} busy={busy} onDiagnose={runDiagnostic} onUndo={async () => { setBusy(true); try { setMessage(await runActionAndPoll('undo-last', {}, true)); await refresh() } finally { setBusy(false) } }}/>}
+		{view === 'diagnostics' && <Diagnostics diagnosis={diagnosis} audit={audit} busy={busy} onDiagnose={runDiagnostic} onUndo={() => requestPrivilege('undo-last')}/>}
     </div>
-    {plan && <PlanModal plan={plan} busy={busy} onCancel={() => setPlan(undefined)} onApply={() => void applyPlan()}/>}
+		{plan && <PlanModal plan={plan} busy={busy} onCancel={() => setPlan(undefined)} onApply={() => void requestPrivilege('apply-plan', plan.id)}/>}
+		{privilegeRequest && <PrivilegeRequestModal request={privilegeRequest} busy={busy} onCancel={() => setPrivilegeRequest(undefined)} onExecute={password => void executePrivilege(password)} />}
   </main>
 }
 
@@ -113,4 +133,20 @@ function ChangeForm({ title, operation, actionLabel, busy, onPlan, children }: {
 
 function PlanModal({ plan, busy, onCancel, onApply }: { plan: Plan; busy: boolean; onCancel: () => void; onApply: () => void }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--theme-surface-overlay)] p-4"><section className="w-full max-w-xl rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-5 shadow-[var(--theme-shadow-pop)]"><h2 className="m-0 text-base font-semibold">确认变更计划</h2><p className="mt-1 text-sm text-[var(--theme-text-muted)]">{labels[plan.operation] ?? plan.operation} · 风险等级：<strong className={plan.risk === 'high' ? 'text-[var(--theme-danger-text)]' : 'text-[var(--theme-warning-text)]'}>{plan.risk === 'high' ? '高' : '中'}</strong></p><div className="mt-4 grid gap-3 rounded-md bg-[var(--theme-surface-raised)] p-3 text-xs"><div><strong>影响：</strong>{plan.impact}</div><div><strong>参数：</strong>{Object.entries(plan.params).map(([key, value]) => `${key}=${value}`).join('，')}</div><div><strong>验证：</strong>{plan.verification.join('、')}</div><div className="text-[var(--theme-text-muted)]">计划将在 {new Date(plan.expiresAt).toLocaleTimeString()} 失效；应用时会重新检查网络状态。</div></div><div className="mt-5 flex justify-end gap-2"><button className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button className="danger-button" disabled={busy} onClick={onApply}>确认并请求系统授权</button></div></section></div>
+}
+
+function PrivilegeRequestModal({ request, busy, onCancel, onExecute }: { request: PrivilegeRequest; busy: boolean; onCancel: () => void; onExecute: (password?: string) => void }) {
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState('')
+  const requiresPassword = request.preflight.authorization === 'password'
+  const submit = () => {
+    if (requiresPassword && !password) { setError('请输入当前系统账户的管理员密码。'); return }
+    if (requiresPassword && password !== confirmation) { setError('两次输入的密码不一致。'); return }
+    const value = password
+    setPassword(''); setConfirmation(''); setError('')
+    onExecute(requiresPassword ? value : undefined)
+  }
+  const nativeLabel = request.preflight.authorization === 'native-uac' ? '继续并调起 Windows UAC' : request.preflight.authorization === 'polkit' ? '继续并调起系统授权' : '确认授权'
+  return <div className="fixed inset-0 z-[60] grid place-items-center bg-[var(--theme-surface-overlay)] p-4"><section className="grid w-full max-w-lg gap-3 rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-5 shadow-[var(--theme-shadow-pop)]"><div><h2 className="m-0 text-base font-semibold">{request.preflight.title}</h2><p className="m-0 mt-2 text-sm leading-6 text-[var(--theme-text-muted)]">{request.preflight.description}</p></div>{!request.preflight.available ? <p className="m-0 rounded-md bg-[var(--theme-warning-soft)] p-3 text-xs leading-5 text-[var(--theme-warning-text)]">{request.preflight.reason || '当前无法请求系统权限。请在本机桌面工作台中重试。'}</p> : <>{requiresPassword && <><label className="grid gap-1 text-xs font-semibold text-[var(--theme-text-secondary)]">管理员密码<input autoFocus type="password" autoComplete="current-password" className="min-h-9 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm" value={password} onChange={event => { setPassword(event.target.value); setError('') }}/></label><label className="grid gap-1 text-xs font-semibold text-[var(--theme-text-secondary)]">确认管理员密码<input type="password" autoComplete="current-password" className="min-h-9 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm" value={confirmation} onChange={event => { setConfirmation(event.target.value); setError('') }}/></label></>}{(error || request.error) && <p className="m-0 rounded-md bg-[var(--theme-danger-soft)] p-2 text-xs text-[var(--theme-danger-text)]">{error || request.error}</p>}</>}<div className="flex justify-end gap-2"><button className="secondary-button" disabled={busy} onClick={() => { setPassword(''); setConfirmation(''); onCancel() }}>取消</button>{request.preflight.available && <button className="danger-button" disabled={busy} onClick={submit}>{requiresPassword ? '确认授权' : nativeLabel}</button>}</div></section></div>
 }

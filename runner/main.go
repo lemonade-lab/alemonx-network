@@ -44,9 +44,6 @@ func main() {
 		write(response{Error: fmt.Sprintf("不支持的 ALX 插件协议（protocol=%q method=%q）", input.Protocol, input.Method)})
 		return
 	}
-	if input.StateDir != "" {
-		governanceStateDir = input.StateDir
-	}
 	result, err := runAction(input.Action, input.Params)
 	write(response{Output: result.Output, Data: result.Data, Error: errorText(err)})
 }
@@ -89,13 +86,13 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 		}
 		return actionResult{Output: "变更计划已生成，请确认差异后应用。", Data: plan}, nil
 	case "apply-plan":
-		result, applyErr := applyPlan(params)
-		return result, applyErr
+		return actionResult{}, fmt.Errorf("网络变更计划必须由 ALemonX 宿主批准后执行")
+	case "apply-approved-plan":
+		return applyApprovedPlan(params)
 	case "audit-list":
-		entries, auditErr := loadAudit()
-		return actionResult{Output: "已读取本机变更历史。", Data: entries}, auditErr
+		return actionResult{Output: "权限审计由 ALemonX 宿主保存。"}, nil
 	case "undo-last":
-		return undoLastChange()
+		return actionResult{}, fmt.Errorf("网络撤销必须由 ALemonX 宿主批准后执行")
 	case "network-check":
 		output = networkCheck()
 	case "mirror-check":
@@ -167,9 +164,6 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 	}
 	if err != nil {
 		return actionResult{Output: output}, err
-	}
-	if isMutatingAction(action) {
-		_ = appendAudit(action, params, output)
 	}
 	return actionResult{Output: output}, nil
 }

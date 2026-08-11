@@ -88,6 +88,9 @@ jobs:
             go build -trimpath -ldflags "-s -w" -o "bundle/alemonx-network/dist/${{ matrix.binary }}" ./runner
           (cd bundle && zip -r "../release/${{ matrix.bundle }}" alemonx-network)
           (cd release && sha256sum "${{ matrix.bundle }}" > "${{ matrix.bundle }}.sha256")
+          runner_sha=$(sha256sum "bundle/alemonx-network/dist/${{ matrix.binary }}" | awk '{print $1}')
+          archive_sha=$(sha256sum "release/${{ matrix.bundle }}" | awk '{print $1}')
+          for action in apply-plan undo-last; do printf '{"pluginId":"alemonx-network","action":"%s","platform":"${{ matrix.goos }}-${{ matrix.goarch }}","tag":"%s","asset":"${{ matrix.bundle }}","archiveSha256":"%s","runnerSha256":"%s","prompt":"native"}\n' "$action" "$GITHUB_REF_NAME" "$archive_sha" "$runner_sha"; done > "release/privilege-policy-${{ matrix.goos }}-${{ matrix.goarch }}.json"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.bundle }}

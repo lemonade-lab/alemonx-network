@@ -2,14 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -79,10 +75,6 @@ type AuditEntry struct {
 	UndoOperation string            `json:"undoOperation,omitempty"`
 	CreatedAt     string            `json:"createdAt"`
 }
-
-// governanceStateDir is supplied only by the ALemonX host to an elevated
-// process, keeping its plan and audit files owned by the initiating user.
-var governanceStateDir string
 
 func capabilitySnapshot() CapabilitySnapshot {
 	all := []Capability{
@@ -174,45 +166,33 @@ func createPlan(params map[string]string) (ChangePlan, error) {
 			copyParams[key] = value
 		}
 	}
-	id, err := randomID()
-	if err != nil {
-		return ChangePlan{}, err
-	}
 	risk := "medium"
 	impact := "将修改本机网络配置。"
 	if operation == "open-port" || operation == "forward-add" || strings.HasPrefix(operation, "firewalld-") {
 		risk, impact = "high", "可能扩大设备可被网络访问的范围。"
 	}
 	now := time.Now()
-	plan := ChangePlan{ID: id, Operation: operation, Params: copyParams, Fingerprint: networkSnapshot().Fingerprint, Risk: risk, Impact: impact, Verification: []string{"重新读取网络快照", "执行 DNS 与 TCP 连通性检查"}, CreatedAt: now.Format(time.RFC3339), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339)}
-	plans, _ := loadPlans()
-	plans = append(plans, plan)
-	if err := savePlans(plans); err != nil {
-		return ChangePlan{}, err
-	}
-	return plan, nil
+	// The unprivileged runner may preview a plan but must never persist the
+	// capability that later authorizes root work. The host replaces ID and owns
+	// plan/audit persistence in its SQLite journal.
+	return ChangePlan{Operation: operation, Params: copyParams, Fingerprint: networkSnapshot().Fingerprint, Risk: risk, Impact: impact, Verification: []string{"重新读取网络快照", "执行 DNS 与 TCP 连通性检查"}, CreatedAt: now.Format(time.RFC3339), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339)}, nil
 }
 
-func applyPlan(params map[string]string) (actionResult, error) {
-	id := strings.TrimSpace(params["planID"])
-	plans, err := loadPlans()
-	if err != nil {
-		return actionResult{}, err
+func applyApprovedPlan(params map[string]string) (actionResult, error) {
+	operation := strings.TrimSpace(params["operation"])
+	if !isMutatingAction(operation) {
+		return actionResult{}, fmt.Errorf("宿主批准的网络变更无效")
 	}
-	for _, plan := range plans {
-		if plan.ID != id {
-			continue
-		}
-		expires, _ := time.Parse(time.RFC3339, plan.ExpiresAt)
-		if time.Now().After(expires) {
-			return actionResult{}, fmt.Errorf("变更计划已过期，请重新预演")
-		}
-		if networkSnapshot().Fingerprint != plan.Fingerprint {
-			return actionResult{}, fmt.Errorf("当前网络状态已变化，请重新预演后再应用")
-		}
-		return runAction(plan.Operation, plan.Params)
+	if expected := strings.TrimSpace(params["__alxFingerprint"]); expected != "" && networkSnapshot().Fingerprint != expected {
+		return actionResult{}, fmt.Errorf("当前网络状态已变化，请重新预演后再应用")
 	}
-	return actionResult{}, fmt.Errorf("未找到变更计划")
+	values := map[string]string{}
+	for key, value := range params {
+		if key != "operation" && !strings.HasPrefix(key, "__alx") {
+			values[key] = value
+		}
+	}
+	return runAction(operation, values)
 }
 
 func isMutatingAction(action string) bool {
@@ -222,107 +202,4 @@ func isMutatingAction(action string) bool {
 	default:
 		return false
 	}
-}
-
-func governancePath(name string) (string, error) {
-	if governanceStateDir != "" {
-		return filepath.Join(governanceStateDir, name), nil
-	}
-	config, err := userConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(config, "alx-network", name), nil
-}
-
-func loadPlans() ([]ChangePlan, error) {
-	var value []ChangePlan
-	return value, loadGovernance("plans.json", &value)
-}
-func savePlans(value []ChangePlan) error { return saveGovernance("plans.json", value) }
-func loadAudit() ([]AuditEntry, error) {
-	var value []AuditEntry
-	return value, loadGovernance("audit.json", &value)
-}
-
-func loadGovernance(name string, value any) error {
-	path, err := governancePath(name)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, value)
-}
-
-func saveGovernance(name string, value any) error {
-	path, err := governancePath(name)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	temporary := path + ".new"
-	if err := os.WriteFile(temporary, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
-}
-
-func appendAudit(operation string, params map[string]string, output string) error {
-	entries, err := loadAudit()
-	if err != nil {
-		return err
-	}
-	id, err := randomID()
-	if err != nil {
-		return err
-	}
-	copyParams := map[string]string{}
-	for key, value := range params {
-		copyParams[key] = value
-	}
-	entry := AuditEntry{ID: id, Operation: operation, Params: copyParams, Output: output, UndoOperation: inverseOperation(operation), CreatedAt: time.Now().Format(time.RFC3339)}
-	entries = append([]AuditEntry{entry}, entries...)
-	if len(entries) > 100 {
-		entries = entries[:100]
-	}
-	return saveGovernance("audit.json", entries)
-}
-
-func inverseOperation(operation string) string {
-	values := map[string]string{"open-port": "close-port", "close-port": "open-port", "iface-up": "iface-down", "iface-down": "iface-up", "ip-add": "ip-remove", "ip-remove": "ip-add", "route-add": "route-remove", "route-remove": "route-add", "forward-add": "forward-remove", "forward-remove": "forward-add", "bond-create": "bond-delete", "bridge-create": "bridge-delete", "vlan-create": "vlan-delete", "firewalld-service-add": "firewalld-service-remove", "firewalld-service-remove": "firewalld-service-add"}
-	return values[operation]
-}
-
-func undoLastChange() (actionResult, error) {
-	entries, err := loadAudit()
-	if err != nil {
-		return actionResult{}, err
-	}
-	for _, entry := range entries {
-		if entry.UndoOperation == "" {
-			continue
-		}
-		return runAction(entry.UndoOperation, entry.Params)
-	}
-	return actionResult{}, fmt.Errorf("没有可撤销的本机变更")
-}
-
-func randomID() (string, error) {
-	value := make([]byte, 12)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(value), nil
 }

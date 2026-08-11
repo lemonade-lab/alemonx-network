@@ -12,6 +12,9 @@ type Task = {
 }
 
 export type ActionResult<T = unknown> = { output: string; error?: string; data?: T }
+export type PrivilegeStatus = { privilege: { enabled: boolean; mode: string; reason?: string; policyVersion: string }; audit: { valid: boolean; policyVersion: string; legacyImported: boolean; reason?: string }; network: { enabled: boolean; reason?: string } }
+export type PrivilegeAudit = { items: unknown[]; audit: PrivilegeStatus['audit'] }
+export type PrivilegePreflight = { available: boolean; authorization: 'password' | 'native-uac' | 'polkit' | 'unavailable'; title: string; description: string; reason?: string; intentId?: string; expiresAt?: string }
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -34,13 +37,15 @@ async function json<T>(response: Response): Promise<T> {
 export async function runAction(
   action: string,
   params: Record<string, string>,
-  confirm = false
+  confirm = false,
+	authorizationId?: string,
+	sudoPassword?: string
 ): Promise<string> {
   const payload = await json<{ id: string }>(
     await fetch(`/api/v1/setup/plugins/${PLUGIN_ID}/actions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, confirm, params })
+      body: JSON.stringify({ action, confirm, params, authorizationId, sudoPassword })
     })
   )
   return payload.id
@@ -65,8 +70,25 @@ async function pollTask<T>(id: string): Promise<ActionResult<T>> {
 export async function runActionAndPoll<T = unknown>(
   action: string,
   params: Record<string, string>,
-  confirm = false
+  confirm = false,
+	authorizationId?: string,
+	sudoPassword?: string
 ): Promise<ActionResult<T>> {
-  const id = await runAction(action, params, confirm)
+  const id = await runAction(action, params, confirm, authorizationId, sudoPassword)
   return pollTask(id)
+}
+
+export async function preflightPrivilege(action: string, planId?: string): Promise<PrivilegePreflight> {
+	return json<PrivilegePreflight>(await fetch('/api/v1/system/privileged/preflight', {
+		method: 'POST', headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ pluginId: PLUGIN_ID, action, planId })
+	}))
+}
+
+export async function fetchPrivilegeStatus(): Promise<PrivilegeStatus> {
+  return json<PrivilegeStatus>(await fetch('/api/v1/system/privileged/status'))
+}
+
+export async function fetchPrivilegeAudit(): Promise<PrivilegeAudit> {
+  return json<PrivilegeAudit>(await fetch('/api/v1/system/privileged/audit?plugin=alemonx-network'))
 }

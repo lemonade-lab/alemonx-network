@@ -26,12 +26,7 @@
   },
   "permissions": {
     "elevatedActions": [
-      "set-npm-registry", "reset-npm-registry", "open-port", "close-port",
-      "iface-up", "iface-down", "ip-add", "ip-remove", "dns-set", "mtu-set",
-      "route-add", "route-remove", "forward-add", "forward-remove",
-      "bond-create", "bond-delete", "bridge-create", "bridge-delete",
-      "vlan-create", "vlan-delete", "firewalld-service-add",
-      "firewalld-service-remove", "firewalld-zone-set-default", "apply-plan", "undo-last"
+      "apply-plan", "undo-last"
     ]
   },
   "navigation": {
