@@ -9,13 +9,13 @@ BINARIES := \
 .PHONY: test vet validate web build dist check
 
 test:
-	go test ./runner/...
+	go test ./...
 
 vet:
-	go vet ./runner/...
+	go vet ./...
 
 validate:
-	python3 scripts/validate-alx.py alx.json
+	go run ./cmd/alxman validate alx.json
 
 # Build the plugin web UI (React + Tailwind, alx design tokens) into ../web.
 web:

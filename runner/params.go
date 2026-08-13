@@ -134,13 +134,13 @@ func vlanIDParam(value string) (int, error) {
 }
 
 var bondModes = map[string]bool{
-	"balance-rr":   true,
+	"balance-rr":    true,
 	"active-backup": true,
-	"balance-xor":  true,
-	"broadcast":    true,
-	"802.3ad":      true,
-	"balance-tlb":  true,
-	"balance-alb":  true,
+	"balance-xor":   true,
+	"broadcast":     true,
+	"802.3ad":       true,
+	"balance-tlb":   true,
+	"balance-alb":   true,
 }
 
 func bondModeParam(value string) (string, error) {

@@ -19,12 +19,40 @@
     "runtime": "go",
     "entry": {
       "go": "runner"
+    },
+    "web": {
+      "mode": "dev-server",
+      "root": "web",
+      "build": {
+        "program": "yarn",
+        "args": ["--cwd", "frontend", "build"]
+      },
+      "dev": {
+        "program": "yarn",
+        "args": ["--cwd", "frontend", "dev", "--host", "127.0.0.1", "--port", "${ALX_PLUGIN_DEV_PORT}"]
+      },
+      "healthPath": "/",
+      "hmr": true
     }
   },
   "web": {
     "root": "web"
   },
+  "statusActions": [
+    "capabilities",
+    "snapshot",
+    "firewall-status"
+  ],
   "privilegedOperations": [
+    {
+      "action": "firewall-set",
+      "runnerAction": "firewall-set",
+      "planAction": "plan",
+      "title": "启用或停用系统防火墙",
+      "description": "网络插件将按已确认的变更计划启用或停用系统防火墙。停用会让本机暴露在公网入站流量下。",
+      "authorization": "native",
+      "platforms": ["linux", "windows"]
+    },
     {
       "action": "apply-plan",
       "runnerAction": "apply-approved-plan",

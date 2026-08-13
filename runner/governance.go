@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
@@ -67,15 +68,6 @@ type ChangePlan struct {
 	ExpiresAt    string            `json:"expiresAt"`
 }
 
-type AuditEntry struct {
-	ID            string            `json:"id"`
-	Operation     string            `json:"operation"`
-	Params        map[string]string `json:"params"`
-	Output        string            `json:"output"`
-	UndoOperation string            `json:"undoOperation,omitempty"`
-	CreatedAt     string            `json:"createdAt"`
-}
-
 func capabilitySnapshot() CapabilitySnapshot {
 	all := []Capability{
 		{ID: "snapshot", Label: "网络快照", Available: true},
@@ -85,14 +77,42 @@ func capabilitySnapshot() CapabilitySnapshot {
 		{ID: "traffic", Label: "流量快照", Available: true},
 		{ID: "forwarding", Label: "端口转发", Available: true, Elevated: true},
 		{ID: "firewall", Label: "防火墙规则", Available: runtime.GOOS != "darwin", Elevated: true},
+		{ID: "firewall-toggle", Label: "防火墙总开关", Available: firewallToggleAvailable(), Elevated: true},
 		{ID: "virtual", Label: "Bond、网桥与 VLAN", Available: runtime.GOOS == "linux", Elevated: true},
 	}
 	for index := range all {
 		if !all[index].Available {
-			all[index].Reason = "当前系统不提供由本插件安全管理的此项能力。"
+			all[index].Reason = capabilityReason(all[index].ID)
 		}
 	}
 	return CapabilitySnapshot{Platform: runtime.GOOS + "/" + runtime.GOARCH, Capabilities: all}
+}
+
+func firewallToggleAvailable() bool {
+	return runtime.GOOS == "windows" || (runtime.GOOS == "linux" && commandExists("ufw"))
+}
+
+func capabilityReason(id string) string {
+	switch id {
+	case "firewall-toggle":
+		switch runtime.GOOS {
+		case "darwin":
+			return "macOS 应用防火墙不支持由本插件控制。"
+		case "linux":
+			return "未检测到 UFW；firewalld 没有安全的全局开关。"
+		default:
+			return "当前系统暂不支持开关防火墙。"
+		}
+	case "firewall":
+		return "macOS 应用防火墙不支持按端口安全修改；请在系统设置中管理。"
+	default:
+		return "当前系统不提供由本插件安全管理的此项能力。"
+	}
+}
+
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }
 
 func networkSnapshot() NetworkSnapshot {
@@ -170,6 +190,8 @@ func createPlan(params map[string]string) (ChangePlan, error) {
 	impact := "将修改本机网络配置。"
 	if operation == "open-port" || operation == "forward-add" || strings.HasPrefix(operation, "firewalld-") {
 		risk, impact = "high", "可能扩大设备可被网络访问的范围。"
+	} else if operation == "firewall-set" {
+		risk, impact = "high", "将启用或停用整个系统防火墙，可能阻断所有入站连接，或让设备暴露在公网。"
 	}
 	now := time.Now()
 	// The unprivileged runner may preview a plan but must never persist the
@@ -215,7 +237,7 @@ func inverseOperation(operation string) string {
 
 func isMutatingAction(action string) bool {
 	switch action {
-	case "set-npm-registry", "reset-npm-registry", "open-port", "close-port", "iface-up", "iface-down", "ip-add", "ip-remove", "dns-set", "mtu-set", "route-add", "route-remove", "forward-add", "forward-remove", "bond-create", "bond-delete", "bridge-create", "bridge-delete", "vlan-create", "vlan-delete", "firewalld-service-add", "firewalld-service-remove", "firewalld-zone-set-default":
+	case "firewall-set", "open-port", "close-port", "iface-up", "iface-down", "ip-add", "ip-remove", "dns-set", "mtu-set", "route-add", "route-remove", "forward-add", "forward-remove", "bond-create", "bond-delete", "bridge-create", "bridge-delete", "vlan-create", "vlan-delete", "firewalld-service-add", "firewalld-service-remove", "firewalld-zone-set-default":
 		return true
 	default:
 		return false

@@ -23,16 +23,3 @@ func TestProtocolParamAllowsOnlyDeclaredProtocols(t *testing.T) {
 		t.Fatal("unsafe protocol must be rejected")
 	}
 }
-
-func TestRedactURLHidesProxyPassword(t *testing.T) {
-	got := redactURL("http://alice:secret@example.test:8080")
-	if got != "http://alice:%2A%2A%2A%2A%2A%2A@example.test:8080" {
-		t.Fatalf("redactURL = %q", got)
-	}
-}
-
-func TestSetNPMRegistryRejectsArbitraryURLsBeforeRunningNPM(t *testing.T) {
-	if _, err := setNPMRegistry(map[string]string{"registry": "https://example.test/"}); err == nil {
-		t.Fatal("arbitrary registry must be rejected")
-	}
-}

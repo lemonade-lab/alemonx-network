@@ -3,15 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 )
 
 const protocol = "alx/v1"
@@ -72,10 +68,10 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 	switch action {
 	case "capabilities":
 		data := capabilitySnapshot()
-		return actionResult{Output: "已识别当前系统网络治理能力。", Data: data}, nil
+		return statusResult(data)
 	case "snapshot":
 		data := networkSnapshot()
-		return actionResult{Output: "已刷新网络快照。", Data: data}, nil
+		return statusResult(data)
 	case "diagnose":
 		data := networkDiagnosis(params)
 		return actionResult{Output: diagnosisSummary(data), Data: data}, nil
@@ -91,26 +87,12 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 		return applyApprovedPlan(params)
 	case "undo-approved":
 		return undoApproved(params)
-	case "audit-list":
-		return actionResult{Output: "权限审计由 ALemonX 宿主保存。"}, nil
 	case "undo-last":
 		return actionResult{}, fmt.Errorf("网络撤销必须经过系统授权后执行")
-	case "network-check":
-		output = networkCheck()
-	case "mirror-check":
-		output = mirrorCheck()
-	case "set-npm-registry":
-		output, err = setNPMRegistry(params)
-	case "reset-npm-registry":
-		output, err = resetNPMRegistry()
-	case "port-check":
-		port, err := portParam(params)
-		if err != nil {
-			return actionResult{}, err
-		}
-		output = portCheck(port)
 	case "firewall-status":
-		output = firewallStatus()
+		return statusResult(firewallStatus())
+	case "firewall-set":
+		output, err = setFirewall(params)
 	case "open-port", "close-port":
 		port, err := portParam(params)
 		if err != nil {
@@ -131,8 +113,6 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 		output, err = mtuSet(params)
 	case "route-add", "route-remove":
 		output, err = routeAction(action, params)
-	case "traffic":
-		output = trafficSnapshot()
 	case "forward-list":
 		output, err = forwardList()
 	case "forward-add":
@@ -170,87 +150,15 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 	return actionResult{Output: output}, nil
 }
 
-func mirrorCheck() string {
-	registry := strings.TrimSpace(commandOutput("npm", "config", "get", "registry"))
-	unconfigured := false
-	if registry == "" || strings.Contains(registry, "未找到命令") {
-		registry = "https://registry.npmjs.org/"
-		unconfigured = true
-	}
-	registryLine := "✓ npm 下载源：" + redactURL(registry)
-	if unconfigured {
-		registryLine = "? npm 下载源：未配置，使用官方默认 " + redactURL(registry)
-	}
-	lines := []string{registryLine, "✓ HTTP_PROXY：" + displayEnv("HTTP_PROXY"), "✓ HTTPS_PROXY：" + displayEnv("HTTPS_PROXY"), "✓ NO_PROXY：" + displayEnv("NO_PROXY")}
-	parsed, err := url.Parse(registry)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return strings.Join(lines, "\n") + "\n? Registry 格式无效，未发起连接测试。"
-	}
-	client := &http.Client{Timeout: 6 * time.Second}
-	response, err := client.Get(strings.TrimRight(parsed.String(), "/") + "/-/ping")
+// statusResult renders a read-only action's data as the Output JSON. The host
+// status endpoint serves exactly this field with a one-second coalescing
+// cache, so read-only polling never allocates an operation task.
+func statusResult(data any) (actionResult, error) {
+	payload, err := json.Marshal(data)
 	if err != nil {
-		return strings.Join(lines, "\n") + "\n! 镜像连通性：失败（" + err.Error() + "）"
+		return actionResult{}, err
 	}
-	_ = response.Body.Close()
-	status := response.Status
-	if response.StatusCode >= 200 && response.StatusCode < 400 {
-		status = "可访问（" + response.Status + "）"
-	} else {
-		status = "异常（" + response.Status + "）"
-	}
-	return strings.Join(lines, "\n") + "\n✓ 镜像连通性：" + status
-}
-
-func setNPMRegistry(params map[string]string) (string, error) {
-	registry := strings.TrimSpace(params["registry"])
-	allowed := map[string]bool{
-		"https://registry.npmjs.org/":     true,
-		"https://registry.npmmirror.com/": true,
-	}
-	if !allowed[registry] {
-		return "", fmt.Errorf("仅允许切换到插件内置的 npm 官方源或 npmmirror")
-	}
-	output, err := exec.Command("npm", "config", "set", "registry", registry).CombinedOutput()
-	if err != nil {
-		return strings.TrimSpace(string(output)), fmt.Errorf("无法设置 npm Registry：%w", err)
-	}
-	return "npm Registry 已切换为：" + registry, nil
-}
-
-func resetNPMRegistry() (string, error) {
-	output, err := exec.Command("npm", "config", "delete", "registry").CombinedOutput()
-	if err != nil {
-		return strings.TrimSpace(string(output)), fmt.Errorf("无法恢复 npm 官方源：%w", err)
-	}
-	return "已删除自定义 Registry 设置；npm 将使用官方默认源。", nil
-}
-
-func portCheck(port int) string {
-	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err == nil {
-		_ = listener.Close()
-		return fmt.Sprintf("✓ 端口 %d 当前未被 TCP 服务监听。", port)
-	}
-	return fmt.Sprintf("! 端口 %d 可能正在被 TCP 服务监听或被系统保留：%v", port, err)
-}
-
-func firewallStatus() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "✓ Windows 防火墙状态：\n" + commandOutput("netsh", "advfirewall", "show", "allprofiles")
-	case "darwin":
-		return "✓ macOS PF 防火墙状态：\n" + commandOutput("pfctl", "-s", "info")
-	case "linux":
-		if output := commandOutput("ufw", "status", "verbose"); !strings.Contains(output, "未找到命令") {
-			return "✓ UFW 防火墙状态：\n" + output
-		}
-		if output := commandOutput("firewall-cmd", "--state"); !strings.Contains(output, "未找到命令") {
-			return "✓ firewalld 状态：\n" + output
-		}
-		return "? 未检测到 UFW 或 firewalld。"
-	default:
-		return "? 当前系统暂不支持读取防火墙状态。"
-	}
+	return actionResult{Output: string(payload), Data: data}, nil
 }
 
 func changeFirewall(action string, port int, transport string) (string, error) {
@@ -311,20 +219,4 @@ func commandOutput(name string, args ...string) string {
 		return "未返回信息"
 	}
 	return text
-}
-func displayEnv(key string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return redactURL(value)
-	}
-	return "未设置"
-}
-
-func redactURL(value string) string {
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.User == nil {
-		return value
-	}
-	username := parsed.User.Username()
-	parsed.User = url.UserPassword(username, "******")
-	return parsed.String()
 }

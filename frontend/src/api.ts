@@ -31,6 +31,14 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// fetchStatus reads a manifest-declared read-only action through the host's
+// status endpoint. The host coalesces concurrent reads with a short cache and
+// never allocates an operation task, so overview polling stays cheap and
+// never pollutes the task history.
+export async function fetchStatus<T>(action: string): Promise<T> {
+  return json<T>(await fetch(`/api/v1/setup/plugins/${PLUGIN_ID}/status?action=${encodeURIComponent(action)}`))
+}
+
 // runAction submits an action and returns its task id. The web UI owns its own
 // confirmation UX for dangerous actions; alx forwards the request to the
 // executor, which whitelists supported action names.

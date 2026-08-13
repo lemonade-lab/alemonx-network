@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
@@ -9,39 +8,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Interface listing and per-interface management. Mutating actions validate
 // their parameters in params.go, never concatenate shell strings, and degrade
 // gracefully on platforms without the needed tooling.
-
-func networkCheck() string {
-	lines := []string{"✓ 系统：" + runtime.GOOS + "/" + runtime.GOARCH}
-	lines = append(lines, interfaceList()...)
-	route := defaultRoute()
-	if strings.Contains(route, "未找到命令") || strings.Contains(route, "Operation not permitted") {
-		lines = append(lines, "? 默认路由：无法读取（" + route + "）")
-	} else {
-		lines = append(lines, "✓ 默认路由："+route)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	addresses, err := net.DefaultResolver.LookupHost(ctx, "registry.npmjs.org")
-	if err != nil {
-		lines = append(lines, "! DNS：registry.npmjs.org 解析失败（"+err.Error()+"）")
-	} else {
-		lines = append(lines, "✓ DNS：registry.npmjs.org 解析正常 → "+strings.Join(addresses, ", "))
-	}
-	connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", "registry.npmjs.org:443")
-	if err != nil {
-		lines = append(lines, "! HTTPS 连通性：registry.npmjs.org:443 连接失败（"+err.Error()+"）")
-	} else {
-		_ = connection.Close()
-		lines = append(lines, "✓ HTTPS 连通性：registry.npmjs.org:443 可连接")
-	}
-	return strings.Join(lines, "\n")
-}
 
 func interfaceList() []string {
 	interfaces, err := net.Interfaces()

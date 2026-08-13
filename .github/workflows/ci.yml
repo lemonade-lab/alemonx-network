@@ -17,20 +17,20 @@ jobs:
           go-version: '1.23.x'
           cache: true
       - name: Test
-        run: go test ./runner/...
+        run: go test ./...
       - name: Vet
-        run: go vet ./runner/...
+        run: go vet ./...
       - name: Cross-compile check
         run: |
           GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/alemonx-network-linux ./runner
           GOOS=windows GOARCH=amd64 go build -trimpath -o /tmp/alemonx-network-windows.exe ./runner
           GOOS=darwin GOARCH=arm64 go build -trimpath -o /tmp/alemonx-network-darwin ./runner
       - name: Validate alx.json
-        run: python3 scripts/validate-alx.py alx.json
+        run: go run ./cmd/alxman validate alx.json
       - name: Set manifest version from tag
-        run: python3 scripts/set-version.py "$GITHUB_REF_NAME"
+        run: go run ./cmd/alxman set-version "$GITHUB_REF_NAME"
       - name: Validate release version
-        run: test "$(python3 -c 'import json; print(json.load(open("alx.json"))["version"])')" = "${GITHUB_REF_NAME#v}"
+        run: go run ./cmd/alxman check-version "$GITHUB_REF_NAME"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -78,7 +78,7 @@ jobs:
           name: web-dist
           path: web
       - name: Set manifest version from tag
-        run: python3 scripts/set-version.py "$GITHUB_REF_NAME"
+        run: go run ./cmd/alxman set-version "$GITHUB_REF_NAME"
       - name: Build plugin bundle
         run: |
           mkdir -p "bundle/alemonx-network/dist" release

@@ -58,7 +58,7 @@ func firewalldZones() (string, error) {
 	}
 	lines = append(lines, "✓ 区域："+strings.Join(zones, ", "))
 	for _, zone := range zones {
-		services, err := firewalldRun("--zone=" + zone, "--list-services")
+		services, err := firewalldRun("--zone="+zone, "--list-services")
 		if err != nil {
 			continue
 		}
