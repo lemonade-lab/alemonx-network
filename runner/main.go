@@ -89,10 +89,12 @@ func runAction(action string, params map[string]string) (actionResult, error) {
 		return actionResult{}, fmt.Errorf("网络变更计划必须由 ALemonX 宿主批准后执行")
 	case "apply-approved-plan":
 		return applyApprovedPlan(params)
+	case "undo-approved":
+		return undoApproved(params)
 	case "audit-list":
 		return actionResult{Output: "权限审计由 ALemonX 宿主保存。"}, nil
 	case "undo-last":
-		return actionResult{}, fmt.Errorf("网络撤销必须由 ALemonX 宿主批准后执行")
+		return actionResult{}, fmt.Errorf("网络撤销必须经过系统授权后执行")
 	case "network-check":
 		output = networkCheck()
 	case "mirror-check":

@@ -195,6 +195,24 @@ func applyApprovedPlan(params map[string]string) (actionResult, error) {
 	return runAction(operation, values)
 }
 
+func undoApproved(params map[string]string) (actionResult, error) {
+	operation := inverseOperation(strings.TrimSpace(params["operation"]))
+	if operation == "" {
+		return actionResult{}, fmt.Errorf("最近操作不支持自动撤销")
+	}
+	values := map[string]string{}
+	for key, value := range params {
+		if key != "operation" && !strings.HasPrefix(key, "__alx") {
+			values[key] = value
+		}
+	}
+	return runAction(operation, values)
+}
+
+func inverseOperation(operation string) string {
+	return map[string]string{"open-port": "close-port", "close-port": "open-port", "iface-up": "iface-down", "iface-down": "iface-up", "ip-add": "ip-remove", "ip-remove": "ip-add", "route-add": "route-remove", "route-remove": "route-add", "forward-add": "forward-remove", "forward-remove": "forward-add", "bond-create": "bond-delete", "bridge-create": "bridge-delete", "vlan-create": "vlan-delete", "firewalld-service-add": "firewalld-service-remove", "firewalld-service-remove": "firewalld-service-add"}[operation]
+}
+
 func isMutatingAction(action string) bool {
 	switch action {
 	case "set-npm-registry", "reset-npm-registry", "open-port", "close-port", "iface-up", "iface-down", "ip-add", "ip-remove", "dns-set", "mtu-set", "route-add", "route-remove", "forward-add", "forward-remove", "bond-create", "bond-delete", "bridge-create", "bridge-delete", "vlan-create", "vlan-delete", "firewalld-service-add", "firewalld-service-remove", "firewalld-zone-set-default":

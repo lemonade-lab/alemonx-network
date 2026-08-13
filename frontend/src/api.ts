@@ -12,9 +12,9 @@ type Task = {
 }
 
 export type ActionResult<T = unknown> = { output: string; error?: string; data?: T }
-export type PrivilegeStatus = { privilege: { enabled: boolean; mode: string; reason?: string; policyVersion: string }; audit: { valid: boolean; policyVersion: string; legacyImported: boolean; reason?: string }; network: { enabled: boolean; reason?: string } }
+export type PrivilegeStatus = { privilege: { enabled: boolean; mode: string; reason?: string; policyVersion: string }; audit: { valid: boolean; policyVersion: string; reason?: string } }
 export type PrivilegeAudit = { items: unknown[]; audit: PrivilegeStatus['audit'] }
-export type PrivilegePreflight = { available: boolean; authorization: 'password' | 'native-uac' | 'polkit' | 'unavailable'; title: string; description: string; reason?: string; intentId?: string; expiresAt?: string }
+export type PrivilegePreflight = { available: boolean; authorization: 'password' | 'native' | 'native-uac' | 'polkit' | 'unavailable'; title: string; description: string; reason?: string; intentId?: string; expiresAt?: string; sourceType?: 'release' | 'development'; sourcePath?: string }
 
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {

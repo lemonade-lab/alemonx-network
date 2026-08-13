@@ -18,17 +18,32 @@
   "development": {
     "runtime": "go",
     "entry": {
-      "go": "runner/main.go"
+      "go": "runner"
     }
   },
   "web": {
     "root": "web"
   },
-  "permissions": {
-    "elevatedActions": [
-      "apply-plan", "undo-last"
-    ]
-  },
+  "privilegedOperations": [
+    {
+      "action": "apply-plan",
+      "runnerAction": "apply-approved-plan",
+      "planAction": "plan",
+      "title": "授权网络变更",
+      "description": "网络插件将按已确认的变更计划修改本机网络配置。",
+      "authorization": "native",
+      "platforms": ["darwin", "linux", "windows"]
+    },
+    {
+      "action": "undo-last",
+	  "runnerAction": "undo-approved",
+	  "useLatestAudit": true,
+      "title": "授权撤销网络变更",
+      "description": "网络插件将撤销最近一项支持恢复的网络变更。",
+      "authorization": "native",
+      "platforms": ["darwin", "linux", "windows"]
+    }
+  ],
   "navigation": {
     "label": "网络",
     "icon": "network",
