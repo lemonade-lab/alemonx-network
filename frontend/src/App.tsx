@@ -1,164 +1,133 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { fetchPrivilegeAudit, fetchPrivilegeStatus, fetchStatus, preflightPrivilege, runActionAndPoll, type ActionResult, type PrivilegePreflight, type PrivilegeStatus } from './api'
 
-type View = 'overview' | 'connections' | 'services' | 'security' | 'diagnostics'
+type View = 'governance' | 'ports' | 'firewall'
 type Capability = { id: string; label: string; available: boolean; elevated: boolean; reason?: string }
 type CapabilitySnapshot = { platform: string; capabilities: Capability[] }
 type InterfaceSnapshot = { name: string; up: boolean; mtu: number; mac?: string; addresses: string[] }
-type Snapshot = { platform: string; capturedAt: string; interfaces: InterfaceSnapshot[]; defaultRoute: string; traffic: string; fingerprint: string }
+type Snapshot = { platform: string; capturedAt: string; interfaces: InterfaceSnapshot[]; defaultRoute: string; traffic: string }
 type FirewallStatus = { available: boolean; enabled?: boolean; backend?: string; detail?: string }
 type Plan = { id: string; operation: string; params: Record<string, string>; risk: string; impact: string; verification: string[]; expiresAt: string }
-type Audit = { id: string; operation: string; params: Record<string, string>; output: string; undoOperation?: string; createdAt: string }
-type Diagnosis = { target: string; steps: { id: string; label: string; status: string; detail: string; latencyMs?: number }[] }
-type PrivilegeRequest = { action: 'apply-plan' | 'undo-last'; planID?: string; preflight: PrivilegePreflight; error?: string }
+type PrivilegeRequest = { action: 'apply-plan'; planID: string; preflight: PrivilegePreflight; error?: string }
 
 const labels: Record<string, string> = {
-  'iface-up': '启用接口', 'iface-down': '停用接口', 'ip-add': '添加 IP 地址', 'ip-remove': '移除 IP 地址',
-  'dns-set': '修改 DNS', 'mtu-set': '修改 MTU', 'route-add': '添加路由', 'route-remove': '移除路由',
-  'forward-add': '发布转发服务', 'forward-remove': '停止转发服务', 'open-port': '开放防火墙端口', 'close-port': '关闭防火墙端口', 'firewall-set': '启用或停用防火墙',
-  'bond-create': '创建 Bond', 'bridge-create': '创建网桥', 'vlan-create': '创建 VLAN'
+  'dns-set': '修改 DNS', 'ip-add': '添加 IP 地址', 'route-add': '添加路由',
+  'forward-add': '新建端口转发', 'open-port': '允许端口访问', 'close-port': '阻止端口访问', 'firewall-set': '切换防火墙'
 }
 
-function Card({ title, detail, children }: { title: string; detail?: string; children: ReactNode }) {
-  return <section className="rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-4 shadow-[var(--theme-shadow-soft)]"><div className="mb-3"><h2 className="m-0 text-sm font-semibold text-[var(--theme-text-strong)]">{title}</h2>{detail && <p className="m-0 mt-1 text-xs text-[var(--theme-text-muted)]">{detail}</p>}</div>{children}</section>
+function Icon({ name }: { name: View | 'refresh' | 'chevron' }) {
+  const paths = {
+    governance: <><path d="M4 17.5V12m5.3 5.5V6m5.4 11.5V9m5.3 8.5V3.5"/><path d="M2.5 20.5h19"/></>,
+    ports: <><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 8h8M8 12h8M8 16h4"/></>,
+    firewall: <><path d="M12 2.8 19 6v5.2c0 4.4-2.9 7.8-7 9.4-4.1-1.6-7-5-7-9.4V6l7-3.2Z"/><path d="m8.7 11.8 2.1 2.1 4.5-4.5"/></>,
+    refresh: <><path d="M20 11a8.1 8.1 0 0 0-14.8-3.4L3 10"/><path d="M3 4v6h6M4 13a8.1 8.1 0 0 0 14.8 3.4L21 14"/><path d="M21 20v-6h-6"/></>,
+    chevron: <path d="m9 18 6-6-6-6"/>
+  }
+  return <svg aria-hidden="true" className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+}
+
+function StatusDot({ ok }: { ok: boolean }) { return <span className={ok ? 'status-dot status-dot--good' : 'status-dot status-dot--quiet'} /> }
+
+function SettingGroup({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return <section className="setting-group"><div className="setting-group__head"><h2>{title}</h2>{description && <p>{description}</p>}</div>{children}</section>
 }
 
 function Field({ label, name, defaultValue, type = 'text', hint }: { label: string; name: string; defaultValue?: string; type?: string; hint?: string }) {
-  return <label className="grid gap-1 text-xs font-semibold text-[var(--theme-text-secondary)]">{label}<input className="min-h-9 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm font-normal text-[var(--theme-text-primary)]" name={name} type={type} defaultValue={defaultValue}/>{hint && <span className="font-normal text-[11px] text-[var(--theme-text-muted)]">{hint}</span>}</label>
+  return <label className="form-field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} />{hint && <small>{hint}</small>}</label>
 }
 
-function Status({ ok, children }: { ok: boolean; children: ReactNode }) {
-  return <span className={ok ? 'text-[var(--theme-success-text)]' : 'text-[var(--theme-danger-text)]'}>{ok ? '● ' : '● '}{children}</span>
+function ActionForm({ title, description, operation, actionLabel, busy, children, onPlan, disabled }: { title: string; description: string; operation: string; actionLabel: string; busy: boolean; children: ReactNode; onPlan: (operation: string, form: HTMLFormElement) => Promise<void>; disabled?: boolean }) {
+  return <div className="action-card"><div><h3>{title}</h3><p>{description}</p></div><form className="action-card__form" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void onPlan(operation, event.currentTarget) }}><div className="form-grid">{children}</div><button className="secondary-button" disabled={busy || disabled}>{actionLabel}</button></form></div>
 }
 
 export default function App() {
-  const [view, setView] = useState<View>('overview')
+  const [view, setView] = useState<View>('governance')
   const [capabilities, setCapabilities] = useState<CapabilitySnapshot>()
   const [snapshot, setSnapshot] = useState<Snapshot>()
   const [firewallStatus, setFirewallStatus] = useState<FirewallStatus>()
-  const [audit, setAudit] = useState<Audit[]>([])
-  const [diagnosis, setDiagnosis] = useState<Diagnosis>()
   const [message, setMessage] = useState<ActionResult>()
   const [busy, setBusy] = useState(false)
   const [plan, setPlan] = useState<Plan>()
   const [privilege, setPrivilege] = useState<PrivilegeStatus>()
-	const [privilegeRequest, setPrivilegeRequest] = useState<PrivilegeRequest>()
+  const [privilegeRequest, setPrivilegeRequest] = useState<PrivilegeRequest>()
 
-  const refresh = async () => {
+  const refresh = async (notice = true) => {
     setBusy(true)
     try {
-      const [capabilityResult, snapshotResult, firewallResult, auditResult, privilegeResult] = await Promise.all([
-        fetchStatus<CapabilitySnapshot>('capabilities'), fetchStatus<Snapshot>('snapshot'), fetchStatus<FirewallStatus>('firewall-status'), fetchPrivilegeAudit(), fetchPrivilegeStatus()
+      const [capabilityResult, snapshotResult, firewallResult, privilegeResult] = await Promise.all([
+        fetchStatus<CapabilitySnapshot>('capabilities'), fetchStatus<Snapshot>('snapshot'), fetchStatus<FirewallStatus>('firewall-status'), fetchPrivilegeStatus(), fetchPrivilegeAudit()
       ])
-      setCapabilities(capabilityResult); setSnapshot(snapshotResult); setFirewallStatus(firewallResult); setAudit((auditResult.items ?? []) as Audit[]); setPrivilege(privilegeResult)
-      setMessage({ output: '已刷新网络快照。' })
-    } catch (reason) {
-      setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) })
-    } finally { setBusy(false) }
+      setCapabilities(capabilityResult); setSnapshot(snapshotResult); setFirewallStatus(firewallResult); setPrivilege(privilegeResult)
+      if (notice) setMessage({ output: '网络状态已更新。' })
+    } catch (reason) { setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
   }
-  useEffect(() => { void refresh() }, [])
-  const refreshFirewallStatus = async () => {
-    setBusy(true)
-    try { setFirewallStatus(await fetchStatus<FirewallStatus>('firewall-status')) }
-    catch (reason) { setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) }) }
-    finally { setBusy(false) }
-  }
-
+  useEffect(() => { void refresh(false) }, [])
   const available = (id: string) => capabilities?.capabilities.find(item => item.id === id)
   const submitPlan = async (operation: string, form: HTMLFormElement) => {
     const params = Object.fromEntries(new FormData(form).entries()) as Record<string, string>
     setBusy(true)
-    try {
-      const result = await runActionAndPoll<Plan>('plan', { operation, ...params })
-      if (result.error) setMessage(result); else setPlan(result.data)
-    } finally { setBusy(false) }
+    try { const result = await runActionAndPoll<Plan>('plan', { operation, ...params }); if (result.error) setMessage(result); else setPlan(result.data) } finally { setBusy(false) }
   }
-  const requestPrivilege = async (action: 'apply-plan' | 'undo-last', planID?: string) => {
+  const requestPrivilege = async (planID: string) => {
     setBusy(true)
-    try {
-      const preflight = await preflightPrivilege(action, planID)
-			setPrivilegeRequest({ action, planID, preflight })
-			setPlan(undefined)
-    } catch (reason) { setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
+    try { const preflight = await preflightPrivilege('apply-plan', planID); setPrivilegeRequest({ action: 'apply-plan', planID, preflight }); setPlan(undefined) }
+    catch (reason) { setMessage({ output: '', error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
   }
   const executePrivilege = async (password?: string) => {
-		if (!privilegeRequest?.preflight.available || !privilegeRequest.preflight.intentId) return
-		setBusy(true)
-		try {
-			const params: Record<string, string> = privilegeRequest.planID ? { planID: privilegeRequest.planID } : {}
-			const result = await runActionAndPoll(privilegeRequest.action, params, true, privilegeRequest.preflight.intentId, password)
-			setMessage(result)
-			if (result.error && (result.error.includes('权限请求已') || result.error.includes('请先在工作台确认'))) {
-				const preflight = await preflightPrivilege(privilegeRequest.action, privilegeRequest.planID)
-				setPrivilegeRequest({ ...privilegeRequest, preflight, error: '权限请求已刷新，请重新确认后继续。' })
-			} else if (result.error) setPrivilegeRequest({ ...privilegeRequest, error: result.error })
-			else { setPrivilegeRequest(undefined); await refresh() }
-		} catch (reason) { setPrivilegeRequest({ ...privilegeRequest, error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
-	}
-  const runDiagnostic = async (target: string) => { setBusy(true); try { const result = await runActionAndPoll<Diagnosis>('diagnose', { target }); setMessage(result); setDiagnosis(result.data) } finally { setBusy(false) } }
-  const runRead = async (action: string) => { setBusy(true); try { const result = await runActionAndPoll(action, {}); setMessage(result) } finally { setBusy(false) } }
+    if (!privilegeRequest?.preflight.available || !privilegeRequest.preflight.intentId) return
+    setBusy(true)
+    try {
+      const result = await runActionAndPoll('apply-plan', { planID: privilegeRequest.planID }, true, privilegeRequest.preflight.intentId, password)
+      if (result.error) setPrivilegeRequest({ ...privilegeRequest, error: result.error })
+      else { setPrivilegeRequest(undefined); setMessage(result); await refresh(false) }
+    } catch (reason) { setPrivilegeRequest({ ...privilegeRequest, error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
+  }
+  const navigation: Array<[View, string, string]> = [['governance', '网络治理', '连接、地址与路由'], ['ports', '端口管理', '转发与流量'], ['firewall', '防火墙', '入站访问策略']]
+  const pageTitle = navigation.find(([id]) => id === view)?.[1]
 
-  const navigation: Array<[View, string, string]> = [['overview', '概览', '◉'], ['connections', '连接与接口', '⌁'], ['services', '服务与流量', '⇄'], ['security', '安全策略', '◈'], ['diagnostics', '诊断与历史', '◎']]
-  return <main className="mx-auto grid max-w-[1120px] gap-4 p-4 lg:grid-cols-[190px_1fr]">
-    <aside className="rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-3 lg:min-h-[680px]"><div className="mb-5 px-2"><h1 className="m-0 text-base font-semibold text-[var(--theme-text-strong)]">网络治理台</h1><p className="m-0 mt-1 text-xs text-[var(--theme-text-muted)]">本机 · {capabilities?.platform ?? '正在识别系统'}</p></div><nav className="grid gap-1">{navigation.map(([id, label, icon]) => <button key={id} onClick={() => setView(id)} className={'flex min-h-9 items-center gap-2 rounded-control px-2.5 text-left text-xs font-semibold ' + (view === id ? 'bg-[var(--theme-surface-active)] text-[var(--theme-text-strong)]' : 'text-[var(--theme-text-muted)] hover:bg-[var(--theme-surface-hover)]')}><span>{icon}</span>{label}</button>)}</nav><button className="secondary-button mt-5 w-full" disabled={busy} onClick={() => void refresh()}>刷新快照</button></aside>
-    <div className="grid content-start gap-4">
-      {message && <div className={(message.error ? 'border-[var(--theme-danger)] bg-[var(--theme-danger-soft)] text-[var(--theme-danger-text)]' : 'border-[var(--theme-info)] bg-[var(--theme-info-soft)] text-[var(--theme-info-text)]') + ' rounded-panel border px-3 py-2 text-xs'}>{message.error || message.output}</div>}
-      {privilege && !privilege.privilege.enabled && <div className="rounded-panel border border-[var(--theme-warning)] bg-[var(--theme-warning-soft)] px-3 py-2 text-xs text-[var(--theme-warning-text)]">系统授权暂不可用：{privilege.privilege.reason || '请检查工作台系统权限设置。'}</div>}
-      {privilege && !privilege.audit.valid && <div className="rounded-panel border border-[var(--theme-danger)] bg-[var(--theme-danger-soft)] px-3 py-2 text-xs text-[var(--theme-danger-text)]">权限审计链校验失败：{privilege.audit.reason || '请停止系统变更并检查本机存储。'}</div>}
-      {view === 'overview' && <Overview snapshot={snapshot} capabilities={capabilities} audit={audit} onRefresh={refresh} busy={busy}/>}
-      {view === 'connections' && <Connections snapshot={snapshot} virtual={available('virtual')} busy={busy} onPlan={submitPlan}/>}
-      {view === 'services' && <Services snapshot={snapshot} busy={busy} onPlan={submitPlan} onRead={runRead}/>}
-      {view === 'security' && <Security firewall={available('firewall')} toggle={available('firewall-toggle')} status={firewallStatus} busy={busy} onPlan={submitPlan} onRefreshStatus={refreshFirewallStatus}/>}
-		{view === 'diagnostics' && <Diagnostics diagnosis={diagnosis} audit={audit} busy={busy} onDiagnose={runDiagnostic} onUndo={() => requestPrivilege('undo-last')}/>}
-    </div>
-		{plan && <PlanModal plan={plan} busy={busy} onCancel={() => setPlan(undefined)} onApply={() => void requestPrivilege('apply-plan', plan.id)}/>}
-		{privilegeRequest && <PrivilegeRequestModal request={privilegeRequest} busy={busy} onCancel={() => setPrivilegeRequest(undefined)} onExecute={password => void executePrivilege(password)} />}
+  return <main className="settings-shell" data-app-settings-shell>
+    <aside className="settings-sidebar" data-app-settings-sidebar aria-label="网络设置分类">
+      <nav aria-label="网络设置" role="tablist" data-app-settings-nav>{navigation.map(([id, label]) => <button key={id} id={`network-settings-tab-${id}`} role="tab" aria-selected={view === id} aria-controls={`network-settings-panel-${id}`} onClick={() => setView(id)} className={view === id ? 'nav-item nav-item--active' : 'nav-item'}><Icon name={id}/><span>{label}</span></button>)}</nav>
+      <div className="sidebar-footer"><button className="text-button" title="刷新网络状态" disabled={busy} onClick={() => void refresh()}><Icon name="refresh"/>刷新</button><small><StatusDot ok={Boolean(snapshot?.interfaces.some(item => item.up && item.addresses.length))}/>{snapshot?.platform ?? '正在识别主机'}</small></div>
+    </aside>
+    <section className="settings-content" id={`network-settings-panel-${view}`} role="tabpanel" aria-labelledby={`network-settings-tab-${view}`}>
+      <div className="settings-panel-content" data-app-settings-body><header className="page-header"><span>{pageTitle}</span><button className="text-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh"/>刷新</button></header>
+      {message && <div role="status" className={message.error ? 'notice notice--error' : 'notice'}>{message.error || message.output}</div>}
+      {privilege && !privilege.privilege.enabled && <div className="notice notice--warning">系统授权暂不可用：{privilege.privilege.reason || '请检查工作台系统权限设置。'}</div>}
+      {view === 'governance' && <Governance snapshot={snapshot} busy={busy} onPlan={submitPlan}/>}
+      {view === 'ports' && <Ports snapshot={snapshot} busy={busy} onPlan={submitPlan}/>}
+      {view === 'firewall' && <Firewall firewall={available('firewall')} toggle={available('firewall-toggle')} status={firewallStatus} busy={busy} onPlan={submitPlan}/>}
+      </div></section>
+    {plan && <PlanModal plan={plan} busy={busy} onCancel={() => setPlan(undefined)} onApply={() => void requestPrivilege(plan.id)}/>}
+    {privilegeRequest && <PrivilegeRequestModal request={privilegeRequest} busy={busy} onCancel={() => setPrivilegeRequest(undefined)} onExecute={password => void executePrivilege(password)}/>}
   </main>
 }
 
-function Overview({ snapshot, capabilities, audit, onRefresh, busy }: { snapshot?: Snapshot; capabilities?: CapabilitySnapshot; audit: Audit[]; onRefresh: () => Promise<void>; busy: boolean }) {
-  const risks = useMemo(() => capabilities?.capabilities.filter(item => !item.available) ?? [], [capabilities])
-  return <><header><h2 className="m-0 text-lg font-semibold text-[var(--theme-text-strong)]">本机网络概览</h2><p className="m-0 mt-1 text-sm text-[var(--theme-text-muted)]">先观察，再预演，再变更。所有系统修改均要求单次授权。</p></header><div className="grid gap-3 md:grid-cols-3"><Card title="网络健康" detail={snapshot?.interfaces.some(item => item.up && item.addresses.length) ? '存在可用网络接口' : '未检测到已连接接口'}><Status ok={Boolean(snapshot?.interfaces.some(item => item.up && item.addresses.length))}>接口与地址</Status></Card><Card title="默认路由" detail={snapshot?.defaultRoute || '正在读取'}><span className="break-all text-xs text-[var(--theme-text-secondary)]">{snapshot?.platform}</span></Card><Card title="权限模型" detail="系统修改时按次请求管理员授权"><Status ok>观察无需特权</Status></Card></div><div className="grid gap-4 lg:grid-cols-2"><Card title="风险与能力" detail="不可用项不会显示为可执行操作"><div className="grid gap-2 text-xs">{risks.length ? risks.map(item => <div key={item.id} className="rounded-md bg-[var(--theme-warning-soft)] p-2 text-[var(--theme-warning-text)]">{item.label}：{item.reason}</div>) : <Status ok>当前平台的核心能力均可使用</Status>}</div></Card><Card title="近期变更" detail="本机保留最近 100 条记录"><div className="grid gap-2 text-xs">{audit.slice(0, 4).map(entry => <div key={entry.id} className="border-b border-[var(--theme-border-subtle)] pb-2"><strong>{labels[entry.operation] ?? entry.operation}</strong><span className="ml-2 text-[var(--theme-text-muted)]">{new Date(entry.createdAt).toLocaleString()}</span></div>)}{!audit.length && <span className="text-[var(--theme-text-muted)]">尚无变更记录。</span>}</div></Card></div><button className="primary-button w-fit" disabled={busy} onClick={() => void onRefresh()}>刷新网络快照</button></>
+function Governance({ snapshot, busy, onPlan }: { snapshot?: Snapshot; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void> }) {
+  const online = Boolean(snapshot?.interfaces.some(item => item.up && item.addresses.length))
+  return <div className="settings-stack"><div className="summary-card"><div className="summary-card__icon"><Icon name="governance"/></div><div><p>连接状态</p><h2><StatusDot ok={online}/>{online ? '网络已连接' : '等待网络连接'}</h2><span>{snapshot?.defaultRoute ? `默认路由：${snapshot.defaultRoute}` : '正在读取网络信息…'}</span></div></div>
+    <SettingGroup title="网络接口" description="查看本机接口和当前分配的地址。"><div className="interface-list">{snapshot?.interfaces.map(item => <div className="interface-row" key={item.name}><div><h3><StatusDot ok={item.up}/>{item.name}</h3><p>{item.addresses.join(' · ') || '未分配 IP 地址'}</p></div><span>MTU {item.mtu}<Icon name="chevron"/></span></div>) || <div className="loading-row">正在读取接口…</div>}</div></SettingGroup>
+    <SettingGroup title="网络配置" description="所有更改都会先展示影响，再请求系统授权。"><div className="action-grid"><ActionForm title="DNS 服务器" description="为指定网络接口设置名称解析服务器。" operation="dns-set" actionLabel="配置 DNS" busy={busy} onPlan={onPlan}><Field label="接口" name="interface" hint="例如 en0、eth0"/><Field label="DNS 服务器" name="dns" hint="以空格分隔，例如 1.1.1.1 8.8.8.8"/></ActionForm><ActionForm title="静态 IP 地址" description="为接口添加一个 CIDR 格式的地址。" operation="ip-add" actionLabel="添加地址" busy={busy} onPlan={onPlan}><Field label="接口" name="interface"/><Field label="IP/CIDR" name="cidr" hint="例如 192.168.1.20/24"/></ActionForm><ActionForm title="静态路由" description="将目标网段经指定网关转发。" operation="route-add" actionLabel="添加路由" busy={busy} onPlan={onPlan}><Field label="目标 CIDR" name="cidr"/><Field label="网关" name="gateway"/><Field label="接口（可选）" name="interface"/></ActionForm></div></SettingGroup></div>
 }
 
-function Connections({ snapshot, virtual, busy, onPlan }: { snapshot?: Snapshot; virtual?: Capability; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void> }) {
-  return <><header><h2 className="m-0 text-lg font-semibold">连接与接口</h2><p className="m-0 mt-1 text-sm text-[var(--theme-text-muted)]">管理接口、地址、DNS、路由和 MTU；写操作会先生成计划。</p></header><Card title="接口状态"><div className="grid gap-2">{snapshot?.interfaces.map(item => <div key={item.name} className="grid gap-1 rounded-md border border-[var(--theme-border-subtle)] p-3 sm:grid-cols-[1fr_auto]"><div><Status ok={item.up}>{item.name} · MTU {item.mtu}</Status><div className="mt-1 text-xs text-[var(--theme-text-muted)]">{item.addresses.join(' · ') || '未分配地址'} {item.mac && `· ${item.mac}`}</div></div></div>) || <span className="text-xs text-[var(--theme-text-muted)]">正在加载接口。</span>}</div></Card><div className="grid gap-4 lg:grid-cols-2"><ChangeForm title="DNS 与 MTU" busy={busy} operation="dns-set" actionLabel="预演 DNS 修改" onPlan={onPlan}><Field label="接口" name="interface" hint="例如 en0、eth0"/><Field label="DNS 服务器" name="dns" hint="以空格分隔，例如 1.1.1.1 8.8.8.8"/></ChangeForm><ChangeForm title="静态 IP 地址" busy={busy} operation="ip-add" actionLabel="预演添加地址" onPlan={onPlan}><Field label="接口" name="interface"/><Field label="IP/CIDR" name="cidr" hint="例如 192.168.1.20/24"/></ChangeForm><ChangeForm title="路由" busy={busy} operation="route-add" actionLabel="预演添加路由" onPlan={onPlan}><Field label="目标 CIDR" name="cidr"/><Field label="网关" name="gateway"/><Field label="接口（可选）" name="interface"/></ChangeForm><Card title="Linux 虚拟网络" detail={virtual?.available ? '支持 Bond、网桥与 VLAN。创建前请确认成员接口没有业务连接。' : virtual?.reason ?? '正在识别'}><button className="secondary-button" disabled={!virtual?.available || busy}>高级能力将在受支持的 Linux 主机显示配置表单</button></Card></div></>
+function Ports({ snapshot, busy, onPlan }: { snapshot?: Snapshot; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void> }) {
+  return <div className="settings-stack"><div className="summary-card"><div className="summary-card__icon"><Icon name="ports"/></div><div><p>端口服务</p><h2>管理端口转发</h2><span>将本机端口安全地发布到局域网内的目标设备。</span></div></div>
+    <SettingGroup title="流量概览" description="当前操作系统接口计数，仅供查看。"><pre className="traffic-readout">{snapshot?.traffic || '正在读取流量数据…'}</pre></SettingGroup>
+    <SettingGroup title="端口转发" description="新增转发前，请确认目标设备的 IP 与端口。"><div className="action-grid action-grid--single"><ActionForm title="新建端口转发" description="把接收到的连接转发至指定设备。" operation="forward-add" actionLabel="检查并继续" busy={busy} onPlan={onPlan}><Field label="本机端口" name="listenPort" type="number" defaultValue="17117"/><Field label="目标设备 IP" name="targetIP" hint="例如 192.168.1.100"/><Field label="目标端口" name="targetPort" type="number"/><Field label="协议" name="protocol" defaultValue="tcp" hint="Windows 当前仅支持 TCP"/></ActionForm></div></SettingGroup></div>
 }
 
-function Services({ snapshot, busy, onPlan, onRead }: { snapshot?: Snapshot; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void>; onRead: (action: string) => Promise<void> }) {
-  return <><header><h2 className="m-0 text-lg font-semibold">服务与流量</h2><p className="m-0 mt-1 text-sm text-[var(--theme-text-muted)]">将端口转发视为服务发布：先检查范围，再确认风险。</p></header><div className="grid gap-4 lg:grid-cols-2"><Card title="流量快照" detail="操作系统当前接口计数"><pre className="m-0 max-h-56 overflow-auto whitespace-pre-wrap text-xs text-[var(--theme-text-secondary)]">{snapshot?.traffic || '正在读取流量数据。'}</pre></Card><Card title="现有端口转发" detail="仅显示系统当前可枚举的规则"><button className="secondary-button" disabled={busy} onClick={() => void onRead('forward-list')}>刷新转发规则</button></Card></div><ChangeForm title="发布端口转发" busy={busy} operation="forward-add" actionLabel="预演服务发布" onPlan={onPlan}><Field label="本机端口" name="listenPort" type="number" defaultValue="17117"/><Field label="目标设备 IP" name="targetIP" hint="例如 192.168.1.100"/><Field label="目标端口" name="targetPort" type="number"/><Field label="协议" name="protocol" defaultValue="tcp" hint="当前 Windows 仅支持 TCP"/></ChangeForm></>
-}
-
-function Security({ firewall, toggle, status, busy, onPlan, onRefreshStatus }: { firewall?: Capability; toggle?: Capability; status?: FirewallStatus; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void>; onRefreshStatus: () => Promise<void> }) {
+function Firewall({ firewall, toggle, status, busy, onPlan }: { firewall?: Capability; toggle?: Capability; status?: FirewallStatus; busy: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void> }) {
   const enabled = status?.enabled
-  const toggleLabel = enabled === true ? '停用防火墙' : enabled === false ? '启用防火墙' : '切换防火墙'
-  return <><header><h2 className="m-0 text-lg font-semibold">安全策略</h2><p className="m-0 mt-1 text-sm text-[var(--theme-text-muted)]">规则展示实际系统状态；仅管理由本插件创建的规则。</p></header>{firewall?.available ? <><Card title="防火墙状态" detail="系统当前防火墙开关状态（只读）"><div className="grid gap-2 text-xs">{status ? <div className="rounded-md border border-[var(--theme-border-subtle)] p-3"><Status ok={enabled === true}>{enabled === true ? '已启用' : enabled === false ? '已停用' : '状态未知'}</Status>{status.backend ? <span className="ml-2 text-[var(--theme-text-muted)]">后端 {status.backend}</span> : null}<p className="m-0 mt-2 text-[var(--theme-text-secondary)]">{status.detail}</p></div> : <span className="text-[var(--theme-text-muted)]">正在读取防火墙状态…</span>}<button className="secondary-button w-fit" disabled={busy} onClick={() => void onRefreshStatus()}>刷新状态</button></div></Card>{toggle?.available ? <ChangeForm title="防火墙总开关" operation="firewall-set" actionLabel={toggleLabel} busy={busy} disabled={enabled === undefined} onPlan={onPlan}><input type="hidden" name="state" value={enabled ? 'off' : 'on'}/><p className="text-xs leading-5 text-[var(--theme-text-muted)]">停用防火墙会允许公网访问本机所有入站端口，风险极高；本操作需要单独的预演与系统授权，且不提供自动撤销。</p></ChangeForm> : <Card title="防火墙总开关不可用" detail={toggle?.reason ?? '当前平台不支持。'}><span className="text-xs text-[var(--theme-text-muted)]">请使用系统原生安全设置管理防火墙开关。</span></Card>}<div className="grid gap-4 lg:grid-cols-2"><ChangeForm title="开放入站端口" busy={busy} operation="open-port" actionLabel="预演开放端口" onPlan={onPlan}><Field label="端口" name="port" type="number" defaultValue="17117"/><Field label="协议" name="protocol" defaultValue="tcp"/></ChangeForm><ChangeForm title="关闭入站端口" busy={busy} operation="close-port" actionLabel="预演关闭端口" onPlan={onPlan}><Field label="端口" name="port" type="number" defaultValue="17117"/><Field label="协议" name="protocol" defaultValue="tcp"/></ChangeForm></div></> : <Card title="防火墙策略不可用" detail={firewall?.reason ?? '正在识别平台能力'}><span className="text-xs text-[var(--theme-text-muted)]">请使用系统原生安全设置；本工具不会在不安全的情况下伪造端口规则支持。</span></Card>}</>
+  return <div className="settings-stack"><div className="summary-card"><div className="summary-card__icon"><Icon name="firewall"/></div><div><p>系统安全</p><h2><StatusDot ok={enabled === true}/>{enabled === true ? '防火墙已启用' : enabled === false ? '防火墙已停用' : '正在读取防火墙状态'}</h2><span>{status?.backend ? `由 ${status.backend} 提供保护` : status?.detail || '入站访问由系统防火墙控制。'}</span></div></div>
+    {!firewall?.available ? <SettingGroup title="防火墙不可用"><div className="unavailable-row">{firewall?.reason ?? '正在识别当前平台的防火墙能力。'}</div></SettingGroup> : <><SettingGroup title="防火墙开关" description="更改此项会影响所有入站网络连接。">{toggle?.available ? <ActionForm title={enabled === true ? '关闭系统防火墙' : '开启系统防火墙'} description={enabled === true ? '关闭会允许所有入站端口访问，风险较高。' : '开启可让系统根据规则管理入站访问。'} operation="firewall-set" actionLabel={enabled === true ? '关闭防火墙' : '开启防火墙'} busy={busy} disabled={enabled === undefined} onPlan={onPlan}><input type="hidden" name="state" value={enabled ? 'off' : 'on'}/></ActionForm> : <div className="unavailable-row">{toggle?.reason ?? '当前平台不支持管理总开关。'}</div>}</SettingGroup>
+      <SettingGroup title="入站端口规则" description="只管理由本插件创建的规则。"><div className="action-grid"><ActionForm title="允许端口访问" description="允许指定协议的入站连接。" operation="open-port" actionLabel="允许端口" busy={busy} onPlan={onPlan}><Field label="端口" name="port" type="number" defaultValue="17117"/><Field label="协议" name="protocol" defaultValue="tcp"/></ActionForm><ActionForm title="阻止端口访问" description="移除本插件创建的允许规则。" operation="close-port" actionLabel="阻止端口" busy={busy} onPlan={onPlan}><Field label="端口" name="port" type="number" defaultValue="17117"/><Field label="协议" name="protocol" defaultValue="tcp"/></ActionForm></div></SettingGroup></>}</div>
 }
 
-function Diagnostics({ diagnosis, audit, busy, onDiagnose, onUndo }: { diagnosis?: Diagnosis; audit: Audit[]; busy: boolean; onDiagnose: (target: string) => Promise<void>; onUndo: () => Promise<void> }) {
-  return <><header><h2 className="m-0 text-lg font-semibold">诊断与变更历史</h2><p className="m-0 mt-1 text-sm text-[var(--theme-text-muted)]">按 DNS、TCP 与路由逐层确认故障位置；撤销仅针对支持逆操作的最近变更。</p></header><Card title="连通性诊断"><form className="flex flex-wrap gap-2" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const target = String(new FormData(event.currentTarget).get('target') || ''); void onDiagnose(target) }}><input className="min-h-9 flex-1 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm" name="target" defaultValue="registry.npmjs.org"/><button className="primary-button" disabled={busy}>运行诊断</button></form>{diagnosis && <div className="mt-3 grid gap-2">{diagnosis.steps.map(step => <div key={step.id} className="rounded-md border border-[var(--theme-border-subtle)] p-2 text-xs"><Status ok={step.status === 'ok'}>{step.label}</Status><span className="ml-2 text-[var(--theme-text-muted)]">{step.detail}</span>{step.latencyMs ? <span className="ml-2 text-[var(--theme-text-faint)]">{step.latencyMs} ms</span> : null}</div>)}</div>}</Card><Card title="审计与撤销" detail="撤销会再次请求系统管理员权限"><div className="mb-3 grid gap-2 text-xs">{audit.slice(0, 8).map(entry => <div key={entry.id} className="border-b border-[var(--theme-border-subtle)] pb-2"><strong>{labels[entry.operation] ?? entry.operation}</strong><span className="ml-2 text-[var(--theme-text-muted)]">{entry.output}</span></div>)}{!audit.length && <span className="text-[var(--theme-text-muted)]">尚无记录。</span>}</div><button className="danger-button" disabled={busy || !audit.some(item => item.undoOperation)} onClick={() => void onUndo()}>撤销最近可恢复变更</button></Card></>
-}
-
-function ChangeForm({ title, operation, actionLabel, busy, disabled, onPlan, children }: { title: string; operation: string; actionLabel: string; busy: boolean; disabled?: boolean; onPlan: (operation: string, form: HTMLFormElement) => Promise<void>; children: ReactNode }) {
-  return <Card title={title} detail="不会立即修改系统。"><form className="grid gap-3" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void onPlan(operation, event.currentTarget) }}><div className="grid gap-3 sm:grid-cols-2">{children}</div><button className="secondary-button w-fit" disabled={busy || disabled}>{actionLabel}</button></form></Card>
-}
-
-function PlanModal({ plan, busy, onCancel, onApply }: { plan: Plan; busy: boolean; onCancel: () => void; onApply: () => void }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--theme-surface-overlay)] p-4"><section className="w-full max-w-xl rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-5 shadow-[var(--theme-shadow-pop)]"><h2 className="m-0 text-base font-semibold">确认变更计划</h2><p className="mt-1 text-sm text-[var(--theme-text-muted)]">{labels[plan.operation] ?? plan.operation} · 风险等级：<strong className={plan.risk === 'high' ? 'text-[var(--theme-danger-text)]' : 'text-[var(--theme-warning-text)]'}>{plan.risk === 'high' ? '高' : '中'}</strong></p><div className="mt-4 grid gap-3 rounded-md bg-[var(--theme-surface-raised)] p-3 text-xs"><div><strong>影响：</strong>{plan.impact}</div><div><strong>参数：</strong>{Object.entries(plan.params).map(([key, value]) => `${key}=${value}`).join('，')}</div><div><strong>验证：</strong>{plan.verification.join('、')}</div><div className="text-[var(--theme-text-muted)]">计划将在 {new Date(plan.expiresAt).toLocaleTimeString()} 失效；应用时会重新检查网络状态。</div></div><div className="mt-5 flex justify-end gap-2"><button className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button className="danger-button" disabled={busy} onClick={onApply}>确认并请求系统授权</button></div></section></div>
-}
+function PlanModal({ plan, busy, onCancel, onApply }: { plan: Plan; busy: boolean; onCancel: () => void; onApply: () => void }) { return <div className="modal-backdrop"><section className="modal-card"><p className="eyebrow">变更确认</p><h2>{labels[plan.operation] ?? plan.operation}</h2><p className="modal-card__lead">此操作会修改系统设置。请确认影响范围后继续。</p><dl><div><dt>风险等级</dt><dd className={plan.risk === 'high' ? 'risk-high' : 'risk-medium'}>{plan.risk === 'high' ? '高' : '中'}</dd></div><div><dt>影响</dt><dd>{plan.impact}</dd></div><div><dt>参数</dt><dd>{Object.entries(plan.params).map(([key, value]) => `${key}=${value}`).join('，')}</dd></div><div><dt>验证</dt><dd>{plan.verification.join('、')}</dd></div></dl><p className="modal-card__expiry">计划将在 {new Date(plan.expiresAt).toLocaleTimeString()} 失效。</p><div className="modal-actions"><button className="secondary-button" disabled={busy} onClick={onCancel}>取消</button><button className="danger-button" disabled={busy} onClick={onApply}>继续并请求授权</button></div></section></div> }
 
 function PrivilegeRequestModal({ request, busy, onCancel, onExecute }: { request: PrivilegeRequest; busy: boolean; onCancel: () => void; onExecute: (password?: string) => void }) {
-  const [password, setPassword] = useState('')
-  const [confirmation, setConfirmation] = useState('')
-  const [error, setError] = useState('')
-  const requiresPassword = request.preflight.authorization === 'password'
-  const submit = () => {
-    if (requiresPassword && !password) { setError('请输入当前系统账户的管理员密码。'); return }
-    if (requiresPassword && password !== confirmation) { setError('两次输入的密码不一致。'); return }
-    const value = password
-    setPassword(''); setConfirmation(''); setError('')
-    onExecute(requiresPassword ? value : undefined)
-  }
+  const [password, setPassword] = useState(''); const [confirmation, setConfirmation] = useState(''); const [error, setError] = useState(''); const requiresPassword = request.preflight.authorization === 'password'
+  const submit = () => { if (requiresPassword && !password) { setError('请输入当前系统账户的管理员密码。'); return }; if (requiresPassword && password !== confirmation) { setError('两次输入的密码不一致。'); return }; const value = password; setPassword(''); setConfirmation(''); setError(''); onExecute(requiresPassword ? value : undefined) }
   const nativeLabel = request.preflight.authorization === 'native-uac' ? '继续并调起 Windows UAC' : request.preflight.authorization === 'polkit' ? '继续并调起系统授权' : request.preflight.authorization === 'native' ? '继续并调起 macOS 授权' : '确认授权'
-  return <div className="fixed inset-0 z-[60] grid place-items-center bg-[var(--theme-surface-overlay)] p-4"><section className="grid w-full max-w-lg gap-3 rounded-panel border border-[var(--theme-border-default)] bg-[var(--theme-surface-panel)] p-5 shadow-[var(--theme-shadow-pop)]"><div><h2 className="m-0 text-base font-semibold">{request.preflight.title}</h2><p className="m-0 mt-2 text-sm leading-6 text-[var(--theme-text-muted)]">{request.preflight.description}</p></div>{!request.preflight.available ? <p className="m-0 rounded-md bg-[var(--theme-warning-soft)] p-3 text-xs leading-5 text-[var(--theme-warning-text)]">{request.preflight.reason || '当前无法请求系统权限。请在本机桌面工作台中重试。'}</p> : <>{requiresPassword && <><label className="grid gap-1 text-xs font-semibold text-[var(--theme-text-secondary)]">管理员密码<input autoFocus type="password" autoComplete="current-password" className="min-h-9 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm" value={password} onChange={event => { setPassword(event.target.value); setError('') }}/></label><label className="grid gap-1 text-xs font-semibold text-[var(--theme-text-secondary)]">确认管理员密码<input type="password" autoComplete="current-password" className="min-h-9 rounded-control border border-[var(--theme-border-default)] bg-[var(--theme-surface-input)] px-2.5 text-sm" value={confirmation} onChange={event => { setConfirmation(event.target.value); setError('') }}/></label></>}{(error || request.error) && <p className="m-0 rounded-md bg-[var(--theme-danger-soft)] p-2 text-xs text-[var(--theme-danger-text)]">{error || request.error}</p>}</>}<div className="flex justify-end gap-2"><button className="secondary-button" disabled={busy} onClick={() => { setPassword(''); setConfirmation(''); onCancel() }}>取消</button>{request.preflight.available && <button className="danger-button" disabled={busy} onClick={submit}>{requiresPassword ? '确认授权' : nativeLabel}</button>}</div></section></div>
+  return <div className="modal-backdrop"><section className="modal-card modal-card--small"><p className="eyebrow">系统授权</p><h2>{request.preflight.title}</h2><p className="modal-card__lead">{request.preflight.description}</p>{!request.preflight.available ? <p className="notice notice--warning">{request.preflight.reason || '当前无法请求系统权限。'}</p> : <>{requiresPassword && <div className="form-grid"><label className="form-field"><span>管理员密码</span><input type="password" autoComplete="current-password" value={password} onChange={event => { setPassword(event.target.value); setError('') }}/></label><label className="form-field"><span>确认管理员密码</span><input type="password" autoComplete="current-password" value={confirmation} onChange={event => { setConfirmation(event.target.value); setError('') }}/></label></div>}{(error || request.error) && <p className="notice notice--error">{error || request.error}</p>}</>}<div className="modal-actions"><button className="secondary-button" disabled={busy} onClick={onCancel}>取消</button>{request.preflight.available && <button className="danger-button" disabled={busy} onClick={submit}>{requiresPassword ? '确认授权' : nativeLabel}</button>}</div></section></div>
 }
