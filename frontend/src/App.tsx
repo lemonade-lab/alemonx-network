@@ -83,15 +83,14 @@ export default function App() {
     } catch (reason) { setPrivilegeRequest({ ...privilegeRequest, error: reason instanceof Error ? reason.message : String(reason) }) } finally { setBusy(false) }
   }
   const navigation: Array<[View, string, string]> = [['governance', '网络治理', '连接、地址与路由'], ['ports', '端口管理', '转发与流量'], ['firewall', '防火墙', '入站访问策略']]
-  const pageTitle = navigation.find(([id]) => id === view)?.[1]
 
   return <main className="settings-shell" data-app-settings-shell>
     <aside className="settings-sidebar" data-app-settings-sidebar aria-label="网络设置分类">
       <nav aria-label="网络设置" role="tablist" data-app-settings-nav>{navigation.map(([id, label]) => <button key={id} id={`network-settings-tab-${id}`} role="tab" aria-selected={view === id} aria-controls={`network-settings-panel-${id}`} onClick={() => setView(id)} className={view === id ? 'nav-item nav-item--active' : 'nav-item'}><Icon name={id}/><span>{label}</span></button>)}</nav>
-      <div className="sidebar-footer"><button className="text-button" title="刷新网络状态" disabled={busy} onClick={() => void refresh()}><Icon name="refresh"/>刷新</button><small><StatusDot ok={Boolean(snapshot?.interfaces.some(item => item.up && item.addresses.length))}/>{snapshot?.platform ?? '正在识别主机'}</small></div>
+      <div className="sidebar-footer"><button className="sidebar-action" title="刷新网络状态" disabled={busy} onClick={() => void refresh()}><Icon name="refresh"/>刷新网络状态</button><small><StatusDot ok={Boolean(snapshot?.interfaces.some(item => item.up && item.addresses.length))}/>{snapshot?.platform ?? '正在识别主机'}</small></div>
     </aside>
     <section className="settings-content" id={`network-settings-panel-${view}`} role="tabpanel" aria-labelledby={`network-settings-tab-${view}`}>
-      <div className="settings-panel-content" data-app-settings-body><header className="page-header"><span>{pageTitle}</span><button className="text-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh"/>刷新</button></header>
+      <div className="settings-panel-content" data-app-settings-body>
       {message && <div role="status" className={message.error ? 'notice notice--error' : 'notice'}>{message.error || message.output}</div>}
       {privilege && !privilege.privilege.enabled && <div className="notice notice--warning">系统授权暂不可用：{privilege.privilege.reason || '请检查工作台系统权限设置。'}</div>}
       {view === 'governance' && <Governance snapshot={snapshot} busy={busy} onPlan={submitPlan}/>}
