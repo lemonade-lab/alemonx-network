@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 )
 
-// forwardState persists the macOS userland forwarder rules. The file lives in
-// the user config directory because the plugin directory may be read-only
-// (for example when installed next to the alx executable).
+// forwardState persists macOS userland forwarder rules in the host-managed
+// plugin store, separate from replaceable plugin code.
 
 type ForwardRule struct {
 	ID            string `json:"id"`
@@ -28,12 +27,28 @@ type forwardStateFile struct {
 // userConfigDir is a seam for tests; production code uses os.UserConfigDir.
 var userConfigDir = os.UserConfigDir
 
-func forwardStatePath() (string, error) {
+func legacyNetworkStateDir() (string, error) {
 	config, err := userConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(config, "alx-network", "forwards.json"), nil
+	return filepath.Join(config, "alx-network"), nil
+}
+
+func networkStateDir() (string, error) {
+	legacy, err := legacyNetworkStateDir()
+	if err != nil {
+		return "", err
+	}
+	return pluginStoreDir(legacy)
+}
+
+func forwardStatePath() (string, error) {
+	dir, err := networkStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "forwards.json"), nil
 }
 
 func loadForwardState() ([]ForwardRule, error) {

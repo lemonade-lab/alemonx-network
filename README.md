@@ -18,14 +18,18 @@
    - **Mac（Intel 芯片）** → 下载 `alemonx-network-darwin-amd64.zip`
    - **Linux** → 下载 `alemonx-network-linux-amd64.zip`
 2. 解压，得到一个叫 `alemonx-network` 的文件夹。
-3. 把整个文件夹放进 ALemonX 的插件目录。任选其一：
-   - 你电脑的「用户配置」目录下 `alx/plugins/`：
-     - Windows：`C:\Users\你的用户名\AppData\Roaming\alx\plugins\`
-     - Mac：`~/Library/Application Support/alx/plugins/`
-     - Linux：`~/.config/alx/plugins/`
+3. 把整个文件夹放进当前 ALemonX 工作区的 `plugins/` 目录，即
+   `<workspace>/plugins/alemonx-network/`。工作区由启动参数 `--workspace`
+   或 `ALX_WORKSPACE` 决定；未设置时使用 ALemonX 默认工作区。通过应用内
+   插件页安装时会自动放到此处。
 4. 打开 ALemonX，点左侧「插件」，就能看到「网络、端口转发与防火墙」。点它，进界面。
 
 > 只要文件夹被放对了位置，ALemonX 会在约 1 秒内自动认出它，不用重启程序。
+
+端口转发的配置、日志和状态会保存在
+`<workspace>/store/alemonx-network/`，因此挂载整个工作区运行 Docker 时可随
+容器重启保留。首次使用新目录时会复制旧版用户配置中的网络插件数据，原目录不
+会被删除。
 
 ## 开始使用
 

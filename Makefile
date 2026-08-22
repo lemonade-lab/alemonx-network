@@ -6,6 +6,8 @@ BINARIES := \
 	dist/alemonx-network-darwin-arm64 \
 	dist/alemonx-network-darwin-amd64
 
+RUNNER_SOURCES := $(shell find runner -type f -name '*.go' -print) go.mod go.sum
+
 .PHONY: test vet validate web build dist check
 
 test:
@@ -23,16 +25,16 @@ web:
 
 build: $(BINARIES)
 
-dist/alemonx-network-linux-amd64:
+dist/alemonx-network-linux-amd64: $(RUNNER_SOURCES)
 	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o $@ ./runner
 
-dist/alemonx-network-windows-amd64.exe:
+dist/alemonx-network-windows-amd64.exe: $(RUNNER_SOURCES)
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o $@ ./runner
 
-dist/alemonx-network-darwin-arm64:
+dist/alemonx-network-darwin-arm64: $(RUNNER_SOURCES)
 	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o $@ ./runner
 
-dist/alemonx-network-darwin-amd64:
+dist/alemonx-network-darwin-amd64: $(RUNNER_SOURCES)
 	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o $@ ./runner
 
 # Package each platform as a zip containing the full plugin directory

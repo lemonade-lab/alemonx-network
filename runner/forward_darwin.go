@@ -164,11 +164,7 @@ func userlandForwardRemove(params map[string]string) (string, error) {
 }
 
 func forwardStateDir() (string, error) {
-	config, err := userConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(config, "alx-network"), nil
+	return networkStateDir()
 }
 
 func forwardConfigPath(id string) (string, error) {
