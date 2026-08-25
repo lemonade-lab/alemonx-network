@@ -4,6 +4,7 @@
 /web
 /frontend/node_modules
 /frontend/dist
+/\.alx-install.json
 
 # Logs
 *.log

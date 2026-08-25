@@ -187,7 +187,7 @@ func createPlan(params map[string]string) (ChangePlan, error) {
 		}
 	}
 	risk := "medium"
-	impact := "将修改本机网络配置。"
+	impact := "将修改服务器网络配置；请确认远程管理通道仍可用。"
 	if operation == "open-port" || operation == "forward-add" || strings.HasPrefix(operation, "firewalld-") {
 		risk, impact = "high", "可能扩大设备可被网络访问的范围。"
 	} else if operation == "firewall-set" {
@@ -197,7 +197,7 @@ func createPlan(params map[string]string) (ChangePlan, error) {
 	// The unprivileged runner may preview a plan but must never persist the
 	// capability that later authorizes root work. The host replaces ID and owns
 	// plan/audit persistence in its SQLite journal.
-	return ChangePlan{Operation: operation, Params: copyParams, Fingerprint: networkSnapshot().Fingerprint, Risk: risk, Impact: impact, Verification: []string{"重新读取网络快照", "执行 DNS 与 TCP 连通性检查"}, CreatedAt: now.Format(time.RFC3339), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339)}, nil
+	return ChangePlan{Operation: operation, Params: copyParams, Fingerprint: networkSnapshot().Fingerprint, Risk: risk, Impact: impact, Verification: []string{"重新读取服务器网络快照", "确认 SSH、远程桌面或其他管理通道仍可用", "执行 DNS 与 TCP 连通性检查"}, CreatedAt: now.Format(time.RFC3339), ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339)}, nil
 }
 
 func applyApprovedPlan(params map[string]string) (actionResult, error) {

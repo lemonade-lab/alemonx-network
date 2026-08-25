@@ -10,7 +10,7 @@ import (
 
 const validManifest = `{
   "id": "alemonx-network",
-  "name": "网络、端口转发与防火墙",
+  "name": "网络管理",
   "version": "0.0.1",
   "runtime": "binary",
   "entry": {

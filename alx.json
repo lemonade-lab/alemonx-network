@@ -1,8 +1,8 @@
 {
   "id": "alemonx-network",
-  "name": "网络、端口转发与防火墙",
+  "name": "网络管理",
   "version": "0.0.1",
-  "description": "检查网络是否正常、管理网卡与流量、把端口转发到指定设备、开放防火墙端口。",
+  "description": "面向线上服务器的通用网络治理：安全查看并管理连接、接口、地址、路由、DNS、防火墙与可选的端口转发。",
   "platforms": [
     "darwin",
     "linux",
